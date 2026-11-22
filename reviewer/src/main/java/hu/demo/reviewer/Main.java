@@ -15,24 +15,18 @@ import java.util.Set;
 /**
  * AI code review belépési pont.
  *
- * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER.
- * Opcionális: LLM_URL (alap: GitHub Models), LLM_MODEL (alap: openai/gpt-4.1), LLM_API_KEY (alap: GITHUB_TOKEN),
- * RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true.
+ * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, COPILOT_GITHUB_TOKEN (a Copilot CLI-nek).
+ * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true.
  */
 public final class Main {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    // A GitHub Models ingyenes/Copilot keret kb. 8000 bemeneti tokent enged kérésenként.
-    private static final int MAX_PROMPT_CHARS = 14_000;
+    private static final int MAX_PROMPT_CHARS = 60_000;
 
     public static void main(String[] args) throws Exception {
         boolean dryRun = "true".equalsIgnoreCase(System.getenv("DRY_RUN"));
-        String githubToken = env("GITHUB_TOKEN");
-        GitHubClient github = new GitHubClient(githubToken, env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
-        LlmClient llm = new LlmClient(
-                envOr("LLM_URL", "https://models.github.ai/inference/chat/completions"),
-                envOr("LLM_API_KEY", githubToken),
-                envOr("LLM_MODEL", "openai/gpt-4.1"));
+        GitHubClient github = new GitHubClient(env("GITHUB_TOKEN"), env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
+        CopilotClient llm = new CopilotClient(envOr("COPILOT_CMD", "copilot"), System.getenv("COPILOT_MODEL"));
 
         String rules = Files.readString(Path.of(envOr("RULES_FILE", "agent.md")));
 

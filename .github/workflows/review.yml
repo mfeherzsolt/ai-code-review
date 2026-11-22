@@ -7,10 +7,11 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  models: read
 
 jobs:
   review:
+    # Forkból érkező PR-nál a secretek nem elérhetők
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +21,13 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
 
       - name: Build reviewer
         run: mvn -q -B -f reviewer/pom.xml package
@@ -33,6 +41,7 @@ jobs:
       - name: Run AI review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           COMPILE_LOG: compile.log
