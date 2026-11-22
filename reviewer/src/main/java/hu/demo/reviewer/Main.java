@@ -15,20 +15,24 @@ import java.util.Set;
 /**
  * AI code review belépési pont.
  *
- * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, ANTHROPIC_API_KEY,
- * opcionális: ANTHROPIC_MODEL, RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true.
+ * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER.
+ * Opcionális: LLM_URL (alap: GitHub Models), LLM_MODEL (alap: openai/gpt-4.1), LLM_API_KEY (alap: GITHUB_TOKEN),
+ * RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true.
  */
 public final class Main {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final int MAX_PROMPT_CHARS = 60_000;
+    // A GitHub Models ingyenes/Copilot keret kb. 8000 bemeneti tokent enged kérésenként.
+    private static final int MAX_PROMPT_CHARS = 14_000;
 
     public static void main(String[] args) throws Exception {
         boolean dryRun = "true".equalsIgnoreCase(System.getenv("DRY_RUN"));
-        GitHubClient github = new GitHubClient(
-                env("GITHUB_TOKEN"), env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
-        ClaudeClient claude = new ClaudeClient(
-                env("ANTHROPIC_API_KEY"), envOr("ANTHROPIC_MODEL", "claude-sonnet-4-5"));
+        String githubToken = env("GITHUB_TOKEN");
+        GitHubClient github = new GitHubClient(githubToken, env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
+        LlmClient llm = new LlmClient(
+                envOr("LLM_URL", "https://models.github.ai/inference/chat/completions"),
+                envOr("LLM_API_KEY", githubToken),
+                envOr("LLM_MODEL", "openai/gpt-4.1"));
 
         String rules = Files.readString(Path.of(envOr("RULES_FILE", "agent.md")));
 
@@ -51,7 +55,7 @@ public final class Main {
         }
         prompt.append("# Fordítási kimenet (mvn compile)\n```\n").append(readCompileLog()).append("\n```\n");
 
-        String answer = claude.complete(rules, prompt.toString());
+        String answer = llm.complete(rules, prompt.toString());
         JsonNode review = MAPPER.readTree(extractJson(answer));
 
         StringBuilder summary = new StringBuilder("## AI Code Review\n\n")
