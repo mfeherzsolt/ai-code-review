@@ -1,0 +1,39 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Build reviewer
+        run: mvn -q -B -f reviewer/pom.xml package
+
+      - name: Compile demo app (output goes to the review)
+        run: |
+          if [ -f demo-countdown/pom.xml ]; then
+            mvn -q -B -f demo-countdown/pom.xml test-compile > compile.log 2>&1 || true
+          fi
+
+      - name: Run AI review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          COMPILE_LOG: compile.log
+        run: java -jar reviewer/target/ai-reviewer.jar
