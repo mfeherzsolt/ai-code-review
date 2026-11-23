@@ -52,8 +52,9 @@ final class LocalDiff {
                 .start();
         try {
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (process.waitFor() != 0) {
-                throw new IllegalStateException("Sikertelen git parancs: " + String.join(" ", cmd));
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                throw new IllegalStateException("Sikertelen git parancs (" + exitCode + "): " + String.join(" ", cmd));
             }
             return output;
         } finally {
