@@ -1,5 +1,6 @@
 package hu.demo.reviewer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import hu.demo.reviewer.GitHubClient.ChangedFile;
@@ -76,7 +77,7 @@ public final class Main {
         String prompt = buildPrompt(files, commentable);
 
         String answer = llm.complete(rules, prompt);
-        JsonNode review = MAPPER.readTree(extractJson(answer));
+        JsonNode review = parseReview(answer);
         Result result = render(review, minSeverity, commentable);
         String report = report(result.summary(), result.inline());
         if ("true".equalsIgnoreCase(System.getenv("SAVE_REPORT"))) {
@@ -95,6 +96,15 @@ public final class Main {
         github.postReview(github.headSha(), result.summary(), result.inline());
         System.out.println("Review elküldve: " + result.inline().size() + " inline komment.");
         return EXIT_OK;
+    }
+
+    /** A modell válaszából a review JSON; érvénytelen JSON-nál a hiba tartalmazza a nyers választ a hibakereséshez. */
+    static JsonNode parseReview(String answer) throws JsonProcessingException {
+        try {
+            return MAPPER.readTree(extractJson(answer));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("A modell válasza nem érvényes JSON: " + answer, e);
+        }
     }
 
     /** A review eredménye: a kiírandó összegzés, az inline kommentek, és a küszöböt elérő találatok száma. */

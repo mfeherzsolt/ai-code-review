@@ -64,6 +64,8 @@ Ezek tudatos döntések, ne jelezd őket hibának, még ha első ránézésre gy
   kódot futtassa; nem kell gyorsítótárazás vagy "csak ha a jar hiányzik" logika.
 - A küszöböt elérő, de a diffen kívüli sorra mutató komment is találatnak számít (`findings`), és az összegzésben
   jelenik meg, nem inline; ez szándékos.
+- A CI a riportokat a `**/target/review/latest.md` mintával tölti fel artifactként (`upload-artifact`); a `target`
+  könyvtár gitignore-ozott, de az artifact-feltöltés ezt nem veszi figyelembe, ez nem hiba.
 
 ## Mit NE csinálj
 - Ne kommentelj olyan sorra, ami nem szerepel a diffben.

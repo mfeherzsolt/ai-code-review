@@ -132,6 +132,14 @@ class MainTest {
     }
 
     @Test
+    void invalidJsonErrorContainsTheRawAnswer() {
+        IllegalStateException e =
+                assertThrows(IllegalStateException.class, () -> Main.parseReview("{\"summary\": nem-json}"));
+
+        assertTrue(e.getMessage().contains("nem-json"));
+    }
+
+    @Test
     void modulIsTheFirstPathSegmentWithAPom(@TempDir Path root) throws Exception {
         Files.createDirectories(root.resolve("mod"));
         Files.writeString(root.resolve("mod").resolve("pom.xml"), "<project/>");
