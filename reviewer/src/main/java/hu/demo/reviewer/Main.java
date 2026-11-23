@@ -85,7 +85,7 @@ public final class Main {
     }
 
     /** A review eredménye: a kiírandó összegzés, az inline kommentek, és a küszöböt elérő találatok száma. */
-    private record Result(String summary, List<InlineComment> inline, int findings) {}
+    record Result(String summary, List<InlineComment> inline, int findings) {}
 
     /** A prompt a diffekből és a fordítási kimenetből; a kommentelhető sorokat a {@code commentable} térképbe tölti. */
     private static String buildPrompt(List<ChangedFile> files, Map<String, Set<Integer>> commentable)
@@ -107,7 +107,7 @@ public final class Main {
     }
 
     /** A modell válaszából összegzést épít: a küszöb feletti kommentek inline mennek, a többi összecsukott listába. */
-    private static Result render(JsonNode review, String minSeverity, Map<String, Set<Integer>> commentable) {
+    static Result render(JsonNode review, String minSeverity, Map<String, Set<Integer>> commentable) {
         StringBuilder summary = new StringBuilder("## AI Code Review\n\n")
                 .append(review.path("summary").asText("(nincs összegzés)")).append("\n");
         List<InlineComment> inline = new ArrayList<>();
