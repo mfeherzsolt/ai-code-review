@@ -34,15 +34,18 @@ class LocalDiffTest {
         git(repo, "commit", "-q", "-m", "base");
         git(repo, "checkout", "-q", "-b", "feature");
         Files.writeString(repo.resolve("régi fájl.txt"), "a\nb\n");
+        Files.writeString(repo.resolve("b.txt"), "x\n");
         Files.delete(repo.resolve("torolt.txt"));
         git(repo, "add", "-A");
         git(repo, "commit", "-q", "-m", "change");
 
         List<ChangedFile> files = LocalDiff.changedFiles(repo, "main");
 
-        assertEquals(1, files.size());
-        assertEquals("régi fájl.txt", files.get(0).filename());
-        assertEquals("@@ -1 +1,2 @@\n a\n+b", files.get(0).patch());
+        assertEquals(2, files.size());
+        assertEquals("b.txt", files.get(0).filename());
+        assertEquals("@@ -0,0 +1 @@\n+x", files.get(0).patch());
+        assertEquals("régi fájl.txt", files.get(1).filename());
+        assertEquals("@@ -1 +1,2 @@\n a\n+b", files.get(1).patch());
     }
 
     @Test

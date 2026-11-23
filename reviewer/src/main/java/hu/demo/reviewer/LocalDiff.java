@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /** Lokális mód: a változásokat a GitHub API helyett a {@code git diff <base>...HEAD} parancsból olvassa. */
@@ -19,19 +20,29 @@ final class LocalDiff {
 
     /**
      * A {@code base...HEAD} közötti, nem törölt fájlok patchei a megadott könyvtár repójából, a GitHub API
-     * {@code patch} mezőjével azonos formában.
+     * {@code patch} mezőjével azonos formában. Két git hívás: a fájlnevek, és az összes diff egyben, amit a
+     * {@code diff --git} fejlécek mentén darabol (a git mindkét kimenetben azonos sorrendben adja a fájlokat).
      */
     static List<ChangedFile> changedFiles(Path repo, String base) throws IOException, InterruptedException {
-        List<ChangedFile> files = new ArrayList<>();
+        String range = base + "...HEAD";
+        // --no-renames: az átnevezés-felismerés a törölt+új fájlpárt egy bejegyzéssé vonná össze, és elcsúsztatná a sorrendet.
         // -z: NUL-lal elválasztott, idézőjelezés nélküli fájlnevek (szóköz, ékezet is biztonságos).
-        String names = git(repo, "diff", "--name-only", "-z", "--diff-filter=d", base + "...HEAD");
-        for (String name : names.split("\0")) {
-            if (name.isEmpty()) {
-                continue;
-            }
-            String patch = stripHeader(git(repo, "diff", base + "...HEAD", "--", name));
+        List<String> names = Arrays.stream(git(repo, "diff", "--no-renames", "--name-only", "-z", "--diff-filter=d", range).split("\0"))
+                .filter(name -> !name.isEmpty())
+                .toList();
+        // Fejléc nélküli darabok; tartalmi sor soha nem kezdődik "diff --git "-tel (azok szóközzel, +/- jellel indulnak).
+        List<String> sections = Arrays.stream(git(repo, "diff", "--no-renames", "--diff-filter=d", range).split("(?m)^diff --git "))
+                .filter(section -> !section.isEmpty())
+                .toList();
+        if (names.size() != sections.size()) {
+            throw new IllegalStateException(
+                    "A fájlnevek (" + names.size() + ") és a diff darabok (" + sections.size() + ") száma eltér.");
+        }
+        List<ChangedFile> files = new ArrayList<>();
+        for (int i = 0; i < names.size(); i++) {
+            String patch = stripHeader(sections.get(i));
             if (!patch.isBlank()) {
-                files.add(new ChangedFile(name, patch));
+                files.add(new ChangedFile(names.get(i), patch));
             }
         }
         return files;

@@ -23,9 +23,18 @@ import java.util.Set;
  *
  * <p>Lokális mód: ha a LOCAL_BASE be van állítva (pl. main), a változásokat a {@code git diff $LOCAL_BASE...HEAD}
  * adja, nem küldi el semmit a GitHubra (GITHUB_TOKEN, PR_NUMBER nem kell), és ha van MIN_SEVERITY-t elérő
- * találat, 1-es kilépési kóddal tér vissza.
+ * találat, {@link #EXIT_FINDINGS} kilépési kóddal tér vissza.
+ *
+ * <p>Kilépési kódok: {@link #EXIT_OK} siker; {@link #EXIT_FINDINGS} lokális módban találat van; minden más
+ * nem 0 érték (pl. 1, a JVM kezeletlen kivételnél) hiba.
  */
 public final class Main {
+
+    /** Siker: nincs (küszöböt elérő) találat, vagy a review elküldve. */
+    static final int EXIT_OK = 0;
+
+    /** Lokális módban van a küszöböt elérő találat; szándékosan különbözik a JVM hibakódjától (1). */
+    static final int EXIT_FINDINGS = 3;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_PROMPT_CHARS = 60_000;
@@ -35,7 +44,7 @@ public final class Main {
         System.exit(run());
     }
 
-    /** A tényleges futás; a visszatérési érték a kilépési kód (nem 0 csak lokális módban, találat esetén). */
+    /** A tényleges futás; a visszatérési érték a kilépési kód ({@link #EXIT_OK} vagy {@link #EXIT_FINDINGS}). */
     private static int run() throws Exception {
         String localBase = System.getenv("LOCAL_BASE");
         boolean local = localBase != null && !localBase.isBlank();
@@ -50,7 +59,7 @@ public final class Main {
         List<ChangedFile> files = local ? LocalDiff.changedFiles(localBase) : github.changedFiles();
         if (files.isEmpty()) {
             System.out.println("Nincs review-zható változás.");
-            return 0;
+            return EXIT_OK;
         }
 
         Map<String, Set<Integer>> commentable = new HashMap<>();
@@ -66,13 +75,13 @@ public final class Main {
             if (local) {
                 System.out.println(
                         "\nLokális review: " + result.findings() + " " + minSeverity + " vagy annál súlyosabb találat.");
-                return result.findings() > 0 ? 1 : 0;
+                return result.findings() > 0 ? EXIT_FINDINGS : EXIT_OK;
             }
-            return 0;
+            return EXIT_OK;
         }
         github.postReview(github.headSha(), result.summary(), result.inline());
         System.out.println("Review elküldve: " + result.inline().size() + " inline komment.");
-        return 0;
+        return EXIT_OK;
     }
 
     /** A review eredménye: a kiírandó összegzés, az inline kommentek, és a küszöböt elérő találatok száma. */
