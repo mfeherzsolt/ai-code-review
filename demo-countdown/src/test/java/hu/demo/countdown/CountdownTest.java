@@ -50,6 +50,25 @@ class CountdownTest {
     }
 
     @Test
+    void formatHoursAreNotLimitedToTwoDigits() {
+        assertEquals("100:00:00", Countdown.format(Duration.ofHours(100)));
+    }
+
+    @Test
+    void parsesValidSeconds() {
+        assertEquals(Duration.ofSeconds(42), Countdown.parseSeconds(new String[] {"42"}));
+    }
+
+    @Test
+    void parseRejectsInvalidArguments() {
+        assertThrows(IllegalArgumentException.class, () -> Countdown.parseSeconds(new String[] {}));
+        assertThrows(IllegalArgumentException.class, () -> Countdown.parseSeconds(new String[] {"1", "2"}));
+        assertThrows(IllegalArgumentException.class, () -> Countdown.parseSeconds(new String[] {"abc"}));
+        assertThrows(IllegalArgumentException.class, () -> Countdown.parseSeconds(new String[] {"0"}));
+        assertThrows(IllegalArgumentException.class, () -> Countdown.parseSeconds(new String[] {"-3"}));
+    }
+
+    @Test
     void roundsUpToWholeSeconds() {
         assertEquals("00:00:02", Countdown.format(Countdown.roundUpToSeconds(Duration.ofMillis(1500))));
         assertEquals(Duration.ofSeconds(1), Countdown.roundUpToSeconds(Duration.ofMillis(1)));

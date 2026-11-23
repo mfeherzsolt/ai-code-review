@@ -1,14 +1,17 @@
 package hu.demo.countdown;
 
+import java.io.PrintStream;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.io.PrintStream;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.TimeUnit;
 
 /** Egyszerű visszaszámláló: a hátralévő időt a megadott óra alapján számolja. */
 public final class Countdown {
+
+    /** Az alvás szemcsézettsége másodpercben. */
+    private static final long TICK_SECONDS = 1;
 
     private final Clock clock;
     private final Instant end;
@@ -31,13 +34,12 @@ public final class Countdown {
         return left.isNegative() ? Duration.ZERO : left;
     }
 
-    /** HH:mm:ss formátum. */
+    /**
+     * HH:mm:ss formátum. Az órák nincsenek 24-re korlátozva, 99 óra felett az óra mező háromjegyű (pl. 100:00:00).
+     */
     public static String format(Duration duration) {
         return String.format("%02d:%02d:%02d", duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
     }
-
-    /** Az alvás szemcsézettsége másodpercben. */
-    private static final long TICK_SECONDS = 1;
 
     /** A várakozás absztrakciója, hogy a ciklus tesztelhető legyen. */
     @FunctionalInterface
@@ -50,16 +52,18 @@ public final class Countdown {
      * Hibás bemenet esetén rövid hibaüzenetet ír a hibakimenetre, és 1-es kilépési kóddal tér vissza.
      */
     public static void main(String[] args) {
+        Duration total;
         try {
-            Countdown countdown = new Countdown(parseSeconds(args), Clock.systemUTC());
-            run(countdown, System.out, TimeUnit.SECONDS::sleep);
+            total = parseSeconds(args);
         } catch (IllegalArgumentException e) {
             System.err.println(e.getMessage());
             System.exit(1);
+            return;
         }
+        run(new Countdown(total, Clock.systemUTC()), System.out, TimeUnit.SECONDS::sleep);
     }
 
-    private static Duration parseSeconds(String[] args) {
+    static Duration parseSeconds(String[] args) {
         if (args.length != 1) {
             throw usage("Hiányzó paraméter.");
         }
