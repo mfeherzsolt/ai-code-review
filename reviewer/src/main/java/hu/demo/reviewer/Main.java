@@ -43,8 +43,9 @@ public final class Main {
     private static final int MAX_PROMPT_CHARS = 60_000;
     private static final List<String> SEVERITIES = List.of("nit", "minor", "major", "critical");
 
-    /** Az önmagát cáfóló "nincs teendő" jellegű megjegyzések; ezeket a modell hibának jelöli, de nem az. */
-    private static final Pattern NO_ACTION = Pattern.compile("nincs teendő|elfogadható", Pattern.CASE_INSENSITIVE);
+    /** Az önmagát cáfoló "nincs teendő" jellegű megjegyzések (a "nem elfogadható" valódi észrevétel marad). */
+    private static final Pattern NO_ACTION =
+            Pattern.compile("nincs teendő|(?<!nem )elfogadható", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     public static void main(String[] args) throws Exception {
         System.exit(run());

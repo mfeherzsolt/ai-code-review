@@ -80,6 +80,17 @@ class MainTest {
     }
 
     @Test
+    void keepsCommentsThatSayItIsNotAcceptable() throws Exception {
+        String review = """
+                {"summary": "S", "comments": [
+                  {"file": "A.java", "line": 3, "severity": "major", "message": "Ez nem elfogadható: hibát nyel el."}
+                ]}""";
+        Main.Result result = Main.render(new ObjectMapper().readTree(review), "minor", Map.of("A.java", Set.of(3)));
+
+        assertEquals(1, result.findings());
+    }
+
+    @Test
     void reportContainsSummaryAndInlineComments() throws Exception {
         Main.Result result =
                 Main.render(new ObjectMapper().readTree(REVIEW), "minor", Map.of("A.java", Set.of(3)));
