@@ -4,14 +4,17 @@ import java.io.PrintStream;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 
 /**
  * Egyszerű visszaszámláló: a hátralévő időt a falióra alapján számolja, másodpercenként kiírja.
  *
- * <p>Az időforrás szándékosan a {@code Clock.systemUTC()}, nem monoton óra: a rendszeróra átállítása (NTP, kézi
- * módosítás) eltolhatja a hátralévő időt, ezt a demó céljára elfogadott egyszerűsítésnek tekintjük.
+ * <p>Az időforrás a {@link #nanoTimeClock()}: induláskor egyszer kiolvassa a falióra idejét, utána csak a
+ * {@code System.nanoTime()} különbségét adja hozzá, így a rendszeróra átállítása (NTP, kézi módosítás) nem
+ * tolja el a hátralévő időt.
  */
 public final class Countdown {
 
@@ -35,10 +38,35 @@ public final class Countdown {
      * és 1-es kilépési kóddal tér vissza; megszakítás esetén a kilépési kód {@link #EXIT_INTERRUPTED}.
      */
     public static void main(String[] args) {
-        int exitCode = execute(args, Clock.systemUTC(), System.out, System.err, Thread::sleep);
+        int exitCode = execute(args, nanoTimeClock(), System.out, System.err, Thread::sleep);
         if (exitCode != 0) {
             System.exit(exitCode);
         }
+    }
+
+    /**
+     * Monoton {@link Clock}: a hívás pillanatában mért falióra-időhöz adja hozzá a {@code System.nanoTime()}-mal
+     * mért eltelt időt. Az időzónának nincs hatása, mert csak {@link Instant}-ot szolgáltat.
+     */
+    static Clock nanoTimeClock() {
+        Instant origin = Instant.now();
+        long originNanos = System.nanoTime();
+        return new Clock() {
+            @Override
+            public ZoneId getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                return origin.plusNanos(System.nanoTime() - originNanos);
+            }
+        };
     }
 
     /**

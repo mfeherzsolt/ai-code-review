@@ -15,7 +15,22 @@ Legfeljebb 10 komment legyen, a legfontosabbak elöl.
 
 ### 2. Túlbonyolítás (severity: `major`)
 - Egy countdown megoldható `java.time.Duration` + egy egyszerű ciklus/`ScheduledExecutorService` segítségével.
-- Jelezd, ha van felesleges osztály/interface/réteg, szálkezelés, ismétlődő logika, vagy kézzel írt idő-matek.
+- Elv: KISS és YAGNI. A kód a mai követelményt oldja meg a legkisebb szerkezettel; ne készüljön olyan
+  absztrakció, amelyre ma nincs szükség (spekulatív általánosság, korai absztrakció).
+- Túlbonyolítás, ha egy egyszerű művelethez a nyelv vagy a JDK eleve ad eszközt, mégis:
+  - külön osztály/interface/factory/builder/wrapper készül egyetlen implementációhoz és egyetlen hívóhoz
+    (pl. összeadáshoz elég a `+`, nem kell `Adder` interface, `AdderImpl` osztály és factory);
+  - olyan réteg vagy delegáló metódus van, ami csak továbbhív, és nem ad hozzá viselkedést;
+  - olyan paraméter, konfiguráció vagy kiterjesztési pont van, amit senki nem használ;
+  - szálkezelés (`Thread`, executor, `synchronized`) van ott, ahol egyetlen szálon, egy ciklussal megoldható;
+  - ismétlődő logika van, amit egy metódus kiváltana (3+ előfordulás);
+  - kézzel írt idő-matek van (`/ 3600`, `% 60`, ezredmásodperc-átváltás), amit `Duration`/`Instant`/`ChronoUnit` metódusa megad.
+- NEM túlbonyolítás, ne jelezd:
+  - a tesztelhetőséget szolgáló behelyettesíthető függőség (pl. `Clock` vagy a várakozást végző funkcionális
+    interface paraméterként), ha a teszt ténylegesen használja;
+  - a `System.nanoTime()` alapú `Clock` (monoton időforrás) egy rövid, helyben definiált implementációja;
+  - privát segédmetódus, ami a névvel értelmet ad egy sűrű kifejezésnek.
+- Egy észrevételben mindig nevezd meg, mi a felesleges elem, és mi váltaná ki.
 - Adj **konkrét egyszerűsítési javaslatot** (`suggestion`).
 
 ### 3. Elavult / hibára hajlamos idő API (severity: `major`)

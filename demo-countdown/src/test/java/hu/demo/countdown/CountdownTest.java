@@ -29,6 +29,15 @@ class CountdownTest {
     }
 
     @Test
+    void nanoTimeClockNeverGoesBackwards() {
+        Clock clock = Countdown.nanoTimeClock();
+        Instant first = clock.instant();
+        Instant second = clock.instant();
+        assertFalse(second.isBefore(first));
+        assertEquals(clock, clock.withZone(ZoneOffset.ofHours(2)));
+    }
+
+    @Test
     void remainingNeverGoesNegative() {
         assertEquals(Duration.ZERO, Countdown.remaining(START.plusSeconds(100), START.plusSeconds(10)));
     }
