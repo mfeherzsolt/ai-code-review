@@ -28,9 +28,7 @@ public final class Main {
         GitHubClient github = new GitHubClient(env("GITHUB_TOKEN"), env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
         CopilotClient llm = new CopilotClient(envOr("COPILOT_CMD", "copilot"), System.getenv("COPILOT_MODEL"));
 
-        String rulesFile = envOr("RULES_FILE", "agent.md");
-        String rules = Files.readString(Path.of(rulesFile));
-        System.out.println("Szabályok betöltve: " + rulesFile + " (" + rules.length() + " karakter)");
+        String rules = Files.readString(Path.of(envOr("RULES_FILE", "agent.md")));
 
         List<ChangedFile> files = github.changedFiles();
         if (files.isEmpty()) {

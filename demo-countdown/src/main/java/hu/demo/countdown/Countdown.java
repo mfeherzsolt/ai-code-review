@@ -111,7 +111,7 @@ public final class Countdown {
      */
     static void run(Duration total, Clock clock, PrintStream out, Sleeper sleeper) {
         Instant end = clock.instant().plus(total);
-        Duration left = remaining(clock.instant(), end);
+        Duration left = total;
         while (!left.isZero()) {
             out.println(format(roundUpToSeconds(left)));
             try {
