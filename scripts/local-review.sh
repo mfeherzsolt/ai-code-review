@@ -7,8 +7,8 @@
 # Mit csinál:
 #   1. lefordítja a demo appot (a fordítási kimenet bekerül a promptba, mint a CI-ban),
 #   2. lefuttatja a reviewert az utolsó commitokra ($BASE...HEAD), a riportot modulonként a
-#      <modul>/target/review/latest.md fájlba is elmenti (a modulba nem tartozó fájlok
-#      riportja: target/review/latest.md),
+#      <modul>/target/local-review/latest.md fájlba is elmenti (a modulba nem tartozó fájlok
+#      riportja: target/local-review/latest.md),
 #   3. ha nincs találat: pusholja az ágat; ha van, nem pushol.
 #
 # Kilépési kód: 0 siker; 3 találatok vannak (a reviewer EXIT_FINDINGS kódja); 2 nem commitolt változás van;

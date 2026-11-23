@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 
 /**
@@ -21,8 +21,9 @@ import java.util.regex.Pattern;
  *
  * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, COPILOT_GITHUB_TOKEN (a Copilot CLI-nek).
  * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true,
- * SAVE_REPORT=true (modulonként menti a riportot a {@code <modul>/target/review/latest.md} fájlba; a modulba nem tartozó
- * fájlok riportja a {@code target/review/latest.md}),
+ * SAVE_REPORT=true (modulonként menti a riportot: lokális módban {@code <modul>/target/local-review/latest.md}, egyébként
+ * {@code <modul>/target/review/latest.md}; a modulba nem tartozó fájlok riportja a repó gyökerének {@code target}
+ * könyvtárába kerül),
  * MIN_SEVERITY (alap: minor; nit, minor, major vagy critical; az ez alatti kommentek nem inline kerülnek ki,
  * hanem egy összecsukott listába).
  *
@@ -78,7 +79,7 @@ public final class Main {
         JsonNode review = MAPPER.readTree(extractJson(answer));
         Result result = render(review, minSeverity, commentable);
         String report = report(result.summary(), result.inline());
-        saveReports(files, result);
+        saveReports(files, result, local ? "local-review" : "review");
 
         if (dryRun) {
             System.out.print(report);
@@ -117,23 +118,26 @@ public final class Main {
     }
 
     /**
-     * Ha a SAVE_REPORT=true, modulonként menti a riportot a {@code <modul>/target/review/latest.md} fájlba: az összegzés
-     * és az adott modul inline kommentjei. Minden olyan modulhoz készül riport, amelyben fájl változott, így nem
-     * marad régi riport. A futtatás végén ír, hogy hiba ne hagyjon részlegesen felülírt fájlt.
+     * Ha a SAVE_REPORT=true, modulonként menti a riportot a {@code <modul>/target/<reportDir>/latest.md} fájlba: az
+     * összegzés és az adott modul inline kommentjei. Minden olyan modulhoz készül riport, amelyben fájl változott, így
+     * nem marad régi riport. A futtatás végén ír, hogy hiba ne hagyjon részlegesen felülírt fájlt.
      */
-    private static void saveReports(List<ChangedFile> files, Result result) throws IOException {
+    private static void saveReports(List<ChangedFile> files, Result result, String reportDir) throws IOException {
         if (!"true".equalsIgnoreCase(System.getenv("SAVE_REPORT"))) {
             return;
         }
         Path root = Path.of(".");
-        Set<String> modules = new TreeSet<>();
-        files.forEach(f -> modules.add(moduleOf(root, f.filename())));
-        for (String module : modules) {
-            List<InlineComment> comments =
-                    result.inline().stream().filter(c -> moduleOf(root, c.path()).equals(module)).toList();
-            Path file = root.resolve(module).resolve("target").resolve("review").resolve("latest.md");
+        Map<String, List<InlineComment>> commentsByModule = new TreeMap<>();
+        for (ChangedFile f : files) {
+            commentsByModule.putIfAbsent(moduleOf(root, f.filename()), new ArrayList<>());
+        }
+        for (InlineComment c : result.inline()) {
+            commentsByModule.computeIfAbsent(moduleOf(root, c.path()), module -> new ArrayList<>()).add(c);
+        }
+        for (Map.Entry<String, List<InlineComment>> entry : commentsByModule.entrySet()) {
+            Path file = root.resolve(entry.getKey()).resolve("target").resolve(reportDir).resolve("latest.md");
             Files.createDirectories(file.getParent());
-            Files.writeString(file, report(result.summary(), comments));
+            Files.writeString(file, report(result.summary(), entry.getValue()));
             System.out.println("Riport: " + root.relativize(file).normalize());
         }
     }
