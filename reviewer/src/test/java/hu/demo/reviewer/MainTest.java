@@ -67,6 +67,30 @@ class MainTest {
     }
 
     @Test
+    void dropsCommentsThatSayNoActionIsNeeded() throws Exception {
+        String review = """
+                {"summary": "S", "comments": [
+                  {"file": "A.java", "line": 3, "severity": "major", "message": "Osszessegeben elfogadható, nincs teendő."}
+                ]}""";
+        Main.Result result = Main.render(new ObjectMapper().readTree(review), "minor", Map.of("A.java", Set.of(3)));
+
+        assertEquals(0, result.findings());
+        assertTrue(result.inline().isEmpty());
+        assertFalse(result.summary().contains("elfogadható"));
+    }
+
+    @Test
+    void reportContainsSummaryAndInlineComments() throws Exception {
+        Main.Result result =
+                Main.render(new ObjectMapper().readTree(REVIEW), "minor", Map.of("A.java", Set.of(3)));
+
+        String report = Main.report(result);
+
+        assertTrue(report.startsWith("## AI Code Review"));
+        assertTrue(report.contains("[A.java:3]\n**[major]** inline"));
+    }
+
+    @Test
     void noFindingsWhenEverythingIsBelowThreshold() throws Exception {
         Main.Result result =
                 Main.render(new ObjectMapper().readTree(REVIEW), "critical", Map.of("A.java", Set.of(3)));

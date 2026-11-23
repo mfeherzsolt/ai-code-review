@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import hu.demo.reviewer.GitHubClient.ChangedFile;
 import hu.demo.reviewer.GitHubClient.InlineComment;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -12,12 +13,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * AI code review belépési pont.
  *
  * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, COPILOT_GITHUB_TOKEN (a Copilot CLI-nek).
  * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true,
+ * REPORT_FILE (ide menti a riportot: összegzés és inline kommentek; a szülőkönyvtárat létrehozza),
  * MIN_SEVERITY (alap: minor; nit, minor, major vagy critical; az ez alatti kommentek nem inline kerülnek ki,
  * hanem egy összecsukott listába).
  *
@@ -40,6 +43,9 @@ public final class Main {
     private static final int MAX_PROMPT_CHARS = 60_000;
     private static final List<String> SEVERITIES = List.of("nit", "minor", "major", "critical");
 
+    /** Az önmagát cáfóló "nincs teendő" jellegű megjegyzések; ezeket a modell hibának jelöli, de nem az. */
+    private static final Pattern NO_ACTION = Pattern.compile("nincs teendő|elfogadható", Pattern.CASE_INSENSITIVE);
+
     public static void main(String[] args) throws Exception {
         System.exit(run());
     }
@@ -59,6 +65,7 @@ public final class Main {
         List<ChangedFile> files = local ? LocalDiff.changedFiles(localBase) : github.changedFiles();
         if (files.isEmpty()) {
             System.out.println("Nincs review-zható változás.");
+            saveReport("Nincs review-zható változás.\n");
             return EXIT_OK;
         }
 
@@ -68,10 +75,11 @@ public final class Main {
         String answer = llm.complete(rules, prompt);
         JsonNode review = MAPPER.readTree(extractJson(answer));
         Result result = render(review, minSeverity, commentable);
+        String report = report(result);
+        saveReport(report);
 
         if (dryRun) {
-            System.out.println(result.summary());
-            result.inline().forEach(c -> System.out.println("\n[" + c.path() + ":" + c.line() + "]\n" + c.body()));
+            System.out.print(report);
             if (local) {
                 System.out.println(
                         "\nLokális review: " + result.findings() + " " + minSeverity + " vagy annál súlyosabb találat.");
@@ -86,6 +94,28 @@ public final class Main {
 
     /** A review eredménye: a kiírandó összegzés, az inline kommentek, és a küszöböt elérő találatok száma. */
     record Result(String summary, List<InlineComment> inline, int findings) {}
+
+    /** Olvasható riport: az összegzés, majd az inline kommentek helyként és szöveggel. */
+    static String report(Result result) {
+        StringBuilder report = new StringBuilder(result.summary()).append("\n");
+        for (InlineComment c : result.inline()) {
+            report.append("\n[").append(c.path()).append(":").append(c.line()).append("]\n").append(c.body()).append("\n");
+        }
+        return report.toString();
+    }
+
+    /** Ha a REPORT_FILE be van állítva, oda menti a riportot (a sikeres futás végén, hogy hiba ne írja felül részlegesen). */
+    private static void saveReport(String report) throws IOException {
+        String path = System.getenv("REPORT_FILE");
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        Path file = Path.of(path);
+        if (file.getParent() != null) {
+            Files.createDirectories(file.getParent());
+        }
+        Files.writeString(file, report);
+    }
 
     /** A prompt a diffekből és a fordítási kimenetből; a kommentelhető sorokat a {@code commentable} térképbe tölti. */
     private static String buildPrompt(List<ChangedFile> files, Map<String, Set<Integer>> commentable)
@@ -114,6 +144,9 @@ public final class Main {
         List<String> belowThreshold = new ArrayList<>();
         int findings = 0;
         for (JsonNode c : review.path("comments")) {
+            if (NO_ACTION.matcher(c.path("message").asText()).find()) {
+                continue;
+            }
             String file = c.path("file").asText();
             int line = c.path("line").asInt(-1);
             String body = formatComment(c);

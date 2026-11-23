@@ -51,11 +51,10 @@ if [ -f "$DEMO_DIR/pom.xml" ]; then
 fi
 
 echo "== Review: $BASE...$BRANCH"
-mkdir -p "$REPORT_DIR"
 set +e
 LOCAL_BASE="$BASE" COMPILE_LOG="$LOG" RULES_FILE="${RULES_FILE:-$REVIEWER_ROOT/agent.md}" \
-  java -jar "$JAR" | tee "$REPORT_DIR/latest.md"
-STATUS=${PIPESTATUS[0]}
+  REPORT_FILE="$REPORT_DIR/latest.md" java -jar "$JAR"
+STATUS=$?
 set -e
 echo "== Riport: $REPORT_DIR/latest.md"
 
