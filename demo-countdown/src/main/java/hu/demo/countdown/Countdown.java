@@ -38,10 +38,7 @@ public final class Countdown {
      * és 1-es kilépési kóddal tér vissza; megszakítás esetén a kilépési kód {@link #EXIT_INTERRUPTED}.
      */
     public static void main(String[] args) {
-        int exitCode = execute(args, nanoTimeClock(), System.out, System.err, Thread::sleep);
-        if (exitCode != 0) {
-            System.exit(exitCode);
-        }
+        System.exit(execute(args, nanoTimeClock(), System.out, System.err, Thread::sleep));
     }
 
     /**
