@@ -51,15 +51,28 @@ public final class Countdown {
      * Hibás bemenet esetén rövid hibaüzenetet ír a hibakimenetre, és 1-es kilépési kóddal tér vissza.
      */
     public static void main(String[] args) {
+        int exitCode = execute(args, new MonotonicClock(), System.out, System.err, Thread::sleep);
+        if (exitCode != 0) {
+            System.exit(exitCode);
+        }
+    }
+
+    /**
+     * A {@code main} tesztelhető magja. Csak a bemenet feldolgozásakor dobott hibát kezeli (1-es kilépési kód),
+     * a visszaszámlálás közbeni hibák nem nyelődnek el.
+     *
+     * @return a folyamat kilépési kódja
+     */
+    static int execute(String[] args, Clock clock, PrintStream out, PrintStream err, Sleeper sleeper) {
         Duration total;
         try {
             total = parseSeconds(args);
         } catch (IllegalArgumentException e) {
-            System.err.println(e.getMessage());
-            System.exit(1);
-            return;
+            err.println(e.getMessage());
+            return 1;
         }
-        run(new Countdown(total, Clock.systemUTC()), System.out, Thread::sleep);
+        run(new Countdown(total, clock), out, sleeper);
+        return 0;
     }
 
     static Duration parseSeconds(String[] args) {

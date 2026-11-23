@@ -71,6 +71,42 @@ class CountdownTest {
     }
 
     @Test
+    void executeReturnsErrorCodeAndMessageOnInvalidInput() {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ByteArrayOutputStream err = new ByteArrayOutputStream();
+
+        int exitCode = Countdown.execute(
+                new String[] {"-3"}, new MutableClock(START), new PrintStream(out), new PrintStream(err), duration -> {});
+
+        assertEquals(1, exitCode);
+        assertEquals("", out.toString());
+        assertTrue(err.toString().contains("Használat: Countdown <másodperc>"), err.toString());
+    }
+
+    @Test
+    void executeRunsCountdownOnValidInput() {
+        MutableClock clock = new MutableClock(START);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        int exitCode = Countdown.execute(
+                new String[] {"1"}, clock, new PrintStream(out), new PrintStream(new ByteArrayOutputStream()), clock::advance);
+
+        assertEquals(0, exitCode);
+        assertEquals("00:00:01" + System.lineSeparator() + "Done!" + System.lineSeparator(), out.toString());
+    }
+
+    @Test
+    void monotonicClockNeverGoesBackwards() {
+        Clock clock = new MonotonicClock();
+        Instant previous = clock.instant();
+        for (int i = 0; i < 1000; i++) {
+            Instant current = clock.instant();
+            assertTrue(!current.isBefore(previous));
+            previous = current;
+        }
+    }
+
+    @Test
     void roundsUpToWholeSeconds() {
         assertEquals("00:00:02", Countdown.format(Countdown.roundUpToSeconds(Duration.ofMillis(1500))));
         assertEquals(Duration.ofSeconds(1), Countdown.roundUpToSeconds(Duration.ofMillis(1)));
