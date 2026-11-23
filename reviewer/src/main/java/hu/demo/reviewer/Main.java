@@ -16,12 +16,14 @@ import java.util.Set;
  * AI code review belépési pont.
  *
  * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, COPILOT_GITHUB_TOKEN (a Copilot CLI-nek).
- * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true.
+ * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true,
+ * MIN_SEVERITY (alap: major; az ez alatti kommentek nem inline kerülnek ki, hanem egy összecsukott listába).
  */
 public final class Main {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_PROMPT_CHARS = 60_000;
+    private static final List<String> SEVERITIES = List.of("nit", "minor", "major", "critical");
 
     public static void main(String[] args) throws Exception {
         boolean dryRun = "true".equalsIgnoreCase(System.getenv("DRY_RUN"));
@@ -54,16 +56,25 @@ public final class Main {
 
         StringBuilder summary = new StringBuilder("## AI Code Review\n\n")
                 .append(review.path("summary").asText("(nincs összegzés)")).append("\n");
+        String minSeverity = envOr("MIN_SEVERITY", "major");
         List<InlineComment> inline = new ArrayList<>();
+        List<String> minor = new ArrayList<>();
         for (JsonNode c : review.path("comments")) {
             String file = c.path("file").asText();
             int line = c.path("line").asInt(-1);
             String body = formatComment(c);
-            if (commentable.getOrDefault(file, Set.of()).contains(line)) {
+            if (!atLeast(c.path("severity").asText("minor"), minSeverity)) {
+                minor.add("- `" + file + ":" + line + "` " + body);
+            } else if (commentable.getOrDefault(file, Set.of()).contains(line)) {
                 inline.add(new InlineComment(file, line, body));
             } else {
                 summary.append("\n- `").append(file).append(":").append(line).append("` ").append(body);
             }
+        }
+        if (!minor.isEmpty()) {
+            summary.append("\n<details><summary>").append(minor.size())
+                    .append(" kisebb észrevétel (").append(minSeverity).append(" alatt)</summary>\n\n")
+                    .append(String.join("\n", minor)).append("\n</details>\n");
         }
 
         if (dryRun) {
@@ -73,6 +84,13 @@ public final class Main {
         }
         github.postReview(github.headSha(), summary.toString(), inline);
         System.out.println("Review elküldve: " + inline.size() + " inline komment.");
+    }
+
+    /** Igaz, ha a komment súlyossága eléri a minimumot; ismeretlen súlyosság esetén nem szűr. */
+    static boolean atLeast(String severity, String minimum) {
+        int actual = SEVERITIES.indexOf(severity.toLowerCase());
+        int required = SEVERITIES.indexOf(minimum.toLowerCase());
+        return actual < 0 || required < 0 || actual >= required;
     }
 
     private static String formatComment(JsonNode c) {
