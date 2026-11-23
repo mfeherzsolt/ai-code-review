@@ -9,13 +9,13 @@ import java.time.temporal.ChronoUnit;
 /** Egyszerű visszaszámláló: a hátralévő időt a megadott óra alapján számolja. */
 public final class Countdown {
 
-    /** Várakozás két kiírás között, ha a hátralévő idő egész másodperc. */
-    private static final Duration TICK = Duration.ofSeconds(1);
-
     private final Clock clock;
     private final Instant end;
 
     /**
+     * A visszaszámlálás a konstrukció pillanatában indul: a példány létrehozása és a {@link #run}
+     * meghívása között eltelt idő is beleszámol a hosszába.
+     *
      * @param total a visszaszámlálás hossza, pozitívnak kell lennie
      * @param clock az idő forrása (tesztben cserélhető)
      */
@@ -89,13 +89,13 @@ public final class Countdown {
     }
 
     /**
-     * Ennyit kell várni, hogy a kijelzett (felfelé kerekített) másodperc változzon: a hátralévő idő tört része,
-     * egész másodpercnél pedig egy teljes {@link #TICK}. Mivel mindig az aktuális hátralévő időből számol,
-     * a ciklus lemaradása a következő lépésnél korrigálódik.
+     * Ennyit kell várni, hogy a kijelzett (felfelé kerekített) másodperc változzon: a hátralévő idő tört
+     * része, egész másodpercnél egy teljes másodperc. Mindig az aktuális hátralévő időből számol, így a ciklus
+     * lemaradása a következő lépésnél korrigálódik.
      */
     static Duration untilNextTick(Duration left) {
-        Duration roundedUp = roundUpToSeconds(left);
-        return TICK.minus(roundedUp.minus(left));
+        Duration fraction = left.minus(left.truncatedTo(ChronoUnit.SECONDS));
+        return fraction.isZero() ? Duration.ofSeconds(1) : fraction;
     }
 
     /**
