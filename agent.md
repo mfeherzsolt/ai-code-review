@@ -26,16 +26,16 @@ Legfeljebb 10 komment legyen, a legfontosabbak elöl.
   - ismétlődő logika van, amit egy metódus kiváltana (3+ előfordulás);
   - kézzel írt idő-matek van (`/ 3600`, `% 60`, ezredmásodperc-átváltás), amit `Duration`/`Instant`/`ChronoUnit` metódusa megad.
 - NEM túlbonyolítás, ne jelezd:
-  - a tesztelhetőséget szolgáló behelyettesíthető függőség (pl. `Clock` vagy a várakozást végző funkcionális
-    interface paraméterként), ha a teszt ténylegesen használja;
-  - a `System.nanoTime()` alapú `Clock` (monoton időforrás) egy rövid, helyben definiált implementációja;
+  - a tesztelhetőséget szolgáló behelyettesíthető függőség (pl. `Clock`, `LongSupplier` időforrás vagy a várakozást
+    végző funkcionális interface paraméterként), ha a teszt ténylegesen használja;
+  - a `System.nanoTime()` mint monoton időforrás közvetlen használata;
   - privát segédmetódus, ami a névvel értelmet ad egy sűrű kifejezésnek.
 - Egy észrevételben mindig nevezd meg, mi a felesleges elem, és mi váltaná ki.
 - Adj **konkrét egyszerűsítési javaslatot** (`suggestion`).
 
 ### 3. Elavult / hibára hajlamos idő API (severity: `major`)
 - `Date`, `Calendar`, `SimpleDateFormat`, `System.currentTimeMillis()` helyett `java.time` (`Instant`, `Duration`, `LocalTime`).
-- A hátralévő időt ne a ciklusszámlálóból, hanem a falióra (`Instant.now()`) alapján számold, mert a `Thread.sleep` pontatlan.
+- A hátralévő időt ne a ciklusszámlálóból, hanem óra alapján számold (`System.nanoTime()`, `Instant.now()` vagy `Clock`), mert a `Thread.sleep` pontatlan.
 
 ### 4. Magic number-ek (severity: `minor`)
 - `3600`, `60`, `86400`, `1000` helyett `Duration#toHoursPart()`, `toMinutesPart()`, `TimeUnit` vagy nevesített konstans.
@@ -47,20 +47,24 @@ Legfeljebb 10 komment legyen, a legfontosabbak elöl.
 
 ### 6. Tesztek (severity: `major`)
 - Ha új logika van, de nincs hozzá JUnit teszt, jelezd (a fájlra, ahol a logika van).
-- A countdown logikát úgy érdemes írni, hogy a hátralévő idő számítása tesztelhető legyen (pl. `Clock` paraméter).
+- A countdown logikát úgy érdemes írni, hogy a hátralévő idő számítása tesztelhető legyen (pl. `Clock` vagy `LongSupplier` paraméter).
 
 ### 7. Olvashatóság (severity: `minor`)
 - Egybetűs változónevek (`h`, `m`, `s`) beszédesebb névre cserélése.
 - Publikus osztályok/metódusok Javadoc-ja hiányzik.
 - Egy metódus legyen rövid, egy dolgot csináljon (`main`-ben ne legyen minden).
 
-### 8. Formázás (severity: `nit`)
+### 8. Formázás (severity: `minor`)
 - A kimenet legyen `HH:mm:ss` formátumú (`%02d:%02d:%02d`), ne `1:5:3`.
 
 ## Mit NE csinálj
 - Ne kommentelj olyan sorra, ami nem szerepel a diffben.
 - Ne találj ki hibát; ha a kód jó, mondd ki az összegzésben.
 - Ne ismételd ugyanazt az észrevételt több sornál; jelöld az első előfordulást.
+- Ne adj `nit` súlyosságú észrevételt: stílusbeli apróságot, ízlésbeli javaslatot, és olyan megjegyzést, ami
+  végül "elfogadható" vagy "nincs teendő", ne írj le. Csak `minor` vagy annál súlyosabb, ténylegesen javítandó
+  dolgot jelezz.
+- Ha a kód a fenti szabályok szerint rendben van, a `comments` lista lehet üres.
 
 ## Kimeneti formátum
 

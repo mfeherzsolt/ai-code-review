@@ -7,39 +7,33 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.LongSupplier;
 import org.junit.jupiter.api.Test;
 
 class CountdownTest {
 
-    private static final Instant START = Instant.parse("2026-01-01T00:00:00Z");
     private static final String NL = System.lineSeparator();
 
     @Test
     void remainingDecreasesWithTime() {
-        Instant end = START.plusSeconds(90);
-        assertEquals(Duration.ofSeconds(90), Countdown.remaining(START, end));
-        assertEquals(Duration.ofSeconds(60), Countdown.remaining(START.plusSeconds(30), end));
-    }
-
-    @Test
-    void nanoTimeClockNeverGoesBackwards() {
-        Clock clock = Countdown.nanoTimeClock();
-        Instant first = clock.instant();
-        Instant second = clock.instant();
-        assertFalse(second.isBefore(first));
-        assertEquals(clock, clock.withZone(ZoneOffset.ofHours(2)));
+        long end = Duration.ofSeconds(90).toNanos();
+        assertEquals(Duration.ofSeconds(90), Countdown.remaining(0, end));
+        assertEquals(Duration.ofSeconds(60), Countdown.remaining(Duration.ofSeconds(30).toNanos(), end));
     }
 
     @Test
     void remainingNeverGoesNegative() {
-        assertEquals(Duration.ZERO, Countdown.remaining(START.plusSeconds(100), START.plusSeconds(10)));
+        assertEquals(Duration.ZERO, Countdown.remaining(Duration.ofSeconds(100).toNanos(), Duration.ofSeconds(10).toNanos()));
+    }
+
+    @Test
+    void remainingHandlesNanoTimeOverflow() {
+        long now = Long.MAX_VALUE - 500;
+        long end = now + Duration.ofSeconds(2).toNanos(); // átfordul negatívba
+        assertEquals(Duration.ofSeconds(2), Countdown.remaining(now, end));
     }
 
     @Test
@@ -86,66 +80,58 @@ class CountdownTest {
     }
 
     @Test
-    void untilNextTickIsFractionOrFullSecond() {
-        assertEquals(Duration.ofMillis(500), Countdown.untilNextTick(Duration.ofMillis(1500)));
-        assertEquals(Duration.ofMillis(1), Countdown.untilNextTick(Duration.ofMillis(3001)));
-        assertEquals(Duration.ofSeconds(1), Countdown.untilNextTick(Duration.ofSeconds(3)));
-    }
-
-    @Test
     void runPrintsEachSecondAndDone() {
-        MutableClock clock = new MutableClock(START);
+        FakeNanoTime time = new FakeNanoTime();
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
-        Countdown.run(Duration.ofSeconds(3), clock, new PrintStream(buffer), clock::advance);
+        Countdown.run(Duration.ofSeconds(3), time, new PrintStream(buffer), time::advance);
 
         assertEquals(String.join(NL, "00:00:03", "00:00:02", "00:00:01", "Done!") + NL, buffer.toString());
     }
 
     @Test
-    void runSleepsUntilNextSecondBoundaryForFractionalTotal() {
-        MutableClock clock = new MutableClock(START);
+    void runSleepsOnlyTheRemainingTimeForTheLastFraction() {
+        FakeNanoTime time = new FakeNanoTime();
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         List<Duration> sleeps = new ArrayList<>();
 
-        Countdown.run(Duration.ofMillis(1500), clock, new PrintStream(buffer), duration -> {
+        Countdown.run(Duration.ofMillis(1500), time, new PrintStream(buffer), duration -> {
             sleeps.add(duration);
-            clock.advance(duration);
+            time.advance(duration);
         });
 
         assertEquals(String.join(NL, "00:00:02", "00:00:01", "Done!") + NL, buffer.toString());
-        assertEquals(List.of(Duration.ofMillis(500), Duration.ofSeconds(1)), sleeps);
+        assertEquals(List.of(Duration.ofSeconds(1), Duration.ofMillis(500)), sleeps);
     }
 
     @Test
     void runCorrectsForOversleeping() {
-        MutableClock clock = new MutableClock(START);
+        FakeNanoTime time = new FakeNanoTime();
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
-        // Minden várakozás 200 ms-mal hosszabb a kértnél (lassú kimenet): a kijelzés nem csúszhat el.
+        // Minden várakozás 200 ms-mal hosszabb a kértnél (lassú kimenet): a hátralévő idő az óráról jön, nem a lépésekből.
         Countdown.run(
-                Duration.ofSeconds(3), clock, new PrintStream(buffer), duration -> clock.advance(duration.plusMillis(200)));
+                Duration.ofSeconds(3), time, new PrintStream(buffer), duration -> time.advance(duration.plusMillis(200)));
 
         assertEquals(String.join(NL, "00:00:03", "00:00:02", "00:00:01", "Done!") + NL, buffer.toString());
     }
 
     @Test
     void runStartsTimingWhenCalled() {
-        MutableClock clock = new MutableClock(START);
+        FakeNanoTime time = new FakeNanoTime();
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        clock.advance(Duration.ofHours(1)); // a hívás előtt eltelt idő nem számít bele
+        time.advance(Duration.ofHours(1)); // a hívás előtt eltelt idő nem számít bele
 
-        Countdown.run(Duration.ofSeconds(2), clock, new PrintStream(buffer), clock::advance);
+        Countdown.run(Duration.ofSeconds(2), time, new PrintStream(buffer), time::advance);
 
         assertEquals(String.join(NL, "00:00:02", "00:00:01", "Done!") + NL, buffer.toString());
     }
 
     @Test
     void runStopsWhenInterrupted() {
-        MutableClock clock = new MutableClock(START);
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
-        boolean completed = Countdown.run(Duration.ofSeconds(5), clock, new PrintStream(buffer), duration -> {
+        boolean completed = Countdown.run(Duration.ofSeconds(5), new FakeNanoTime(), new PrintStream(buffer), duration -> {
             throw new InterruptedException();
         });
 
@@ -160,7 +146,7 @@ class CountdownTest {
 
         int exitCode = Countdown.execute(
                 new String[] {"5"},
-                new MutableClock(START),
+                new FakeNanoTime(),
                 new PrintStream(out),
                 new PrintStream(new ByteArrayOutputStream()),
                 duration -> {
@@ -178,11 +164,7 @@ class CountdownTest {
             ByteArrayOutputStream err = new ByteArrayOutputStream();
 
             int exitCode = Countdown.execute(
-                    new String[] {arg},
-                    new MutableClock(START),
-                    new PrintStream(out),
-                    new PrintStream(err),
-                    duration -> {});
+                    new String[] {arg}, new FakeNanoTime(), new PrintStream(out), new PrintStream(err), duration -> {});
 
             assertEquals(1, exitCode, arg);
             assertEquals("", out.toString(), arg);
@@ -192,41 +174,27 @@ class CountdownTest {
 
     @Test
     void executeRunsCountdownOnValidInput() {
-        MutableClock clock = new MutableClock(START);
+        FakeNanoTime time = new FakeNanoTime();
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 
         int exitCode = Countdown.execute(
-                new String[] {"1"}, clock, new PrintStream(out), new PrintStream(new ByteArrayOutputStream()), clock::advance);
+                new String[] {"1"}, time, new PrintStream(out), new PrintStream(new ByteArrayOutputStream()), time::advance);
 
         assertEquals(0, exitCode);
         assertEquals("00:00:01" + NL + "Done!" + NL, out.toString());
     }
 
-    /** Kézzel léptethető óra a determinisztikus tesztekhez. */
-    private static final class MutableClock extends Clock {
-        private Instant now;
-
-        MutableClock(Instant now) {
-            this.now = now;
-        }
+    /** Kézzel léptethető {@code nanoTime} a determinisztikus tesztekhez. */
+    private static final class FakeNanoTime implements LongSupplier {
+        private long nanos;
 
         void advance(Duration duration) {
-            now = now.plus(duration);
+            nanos += duration.toNanos();
         }
 
         @Override
-        public ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return this;
-        }
-
-        @Override
-        public Instant instant() {
-            return now;
+        public long getAsLong() {
+            return nanos;
         }
     }
 }

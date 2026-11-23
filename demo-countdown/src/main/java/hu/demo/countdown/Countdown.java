@@ -1,25 +1,22 @@
 package hu.demo.countdown;
 
 import java.io.PrintStream;
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
+import java.util.function.LongSupplier;
 
 /**
- * Egyszerű visszaszámláló: a hátralévő időt a falióra alapján számolja, másodpercenként kiírja.
- *
- * <p>Az időforrás a {@link #nanoTimeClock()}: induláskor egyszer kiolvassa a falióra idejét, utána csak a
- * {@code System.nanoTime()} különbségét adja hozzá, így a rendszeróra átállítása (NTP, kézi módosítás) nem
- * tolja el a hátralévő időt.
+ * Egyszerű visszaszámláló: a hátralévő időt a {@code System.nanoTime()} alapján számolja, nem a ciklus
+ * lépéseiből, és másodpercenként kiírja. A {@code nanoTime} monoton, ezért a rendszeróra átállítása (NTP, kézi
+ * módosítás) nem tolja el a hátralévő időt.
  */
 public final class Countdown {
 
-    /** A megadható legnagyobb hossz; ennél nagyobb érték az {@link Instant} tartományát is túllépheti. */
+    /** A megadható legnagyobb hossz (ésszerű felső korlát; nanoszekundumban is belül van a {@code long} tartományon). */
     static final Duration MAX_TOTAL = Duration.ofDays(365);
+
+    private static final Duration ONE_SECOND = Duration.ofSeconds(1);
 
     /** A megszakított visszaszámlálás kilépési kódja (a SIGINT-nél szokásos 128 + 2). */
     static final int EXIT_INTERRUPTED = 130;
@@ -38,33 +35,7 @@ public final class Countdown {
      * és 1-es kilépési kóddal tér vissza; megszakítás esetén a kilépési kód {@link #EXIT_INTERRUPTED}.
      */
     public static void main(String[] args) {
-        System.exit(execute(args, nanoTimeClock(), System.out, System.err, Thread::sleep));
-    }
-
-    /**
-     * Monoton {@link Clock}: a hívás pillanatában mért falióra-időhöz adja hozzá a {@code System.nanoTime()}-mal
-     * mért eltelt időt. Az időzónának nincs hatása, mert csak {@link Instant}-ot szolgáltat.
-     */
-    static Clock nanoTimeClock() {
-        Instant origin = Instant.now();
-        long originNanos = System.nanoTime();
-        return new Clock() {
-            @Override
-            public ZoneId getZone() {
-                return ZoneOffset.UTC;
-            }
-
-            /** Az óra csak {@link Instant}-ot ad, ami időzónától független, ezért a zóna cseréjének nincs hatása. */
-            @Override
-            public Clock withZone(ZoneId zone) {
-                return this;
-            }
-
-            @Override
-            public Instant instant() {
-                return origin.plusNanos(System.nanoTime() - originNanos);
-            }
-        };
+        System.exit(execute(args, System::nanoTime, System.out, System.err, Thread::sleep));
     }
 
     /**
@@ -73,7 +44,7 @@ public final class Countdown {
      *
      * @return a folyamat kilépési kódja: 0 siker, 1 hibás bemenet, {@link #EXIT_INTERRUPTED} megszakítás
      */
-    static int execute(String[] args, Clock clock, PrintStream out, PrintStream err, Sleeper sleeper) {
+    static int execute(String[] args, LongSupplier nanoTime, PrintStream out, PrintStream err, Sleeper sleeper) {
         Duration total;
         try {
             total = parseSeconds(args);
@@ -81,7 +52,7 @@ public final class Countdown {
             err.println(e.getMessage());
             return 1;
         }
-        return run(total, clock, out, sleeper) ? 0 : EXIT_INTERRUPTED;
+        return run(total, nanoTime, out, sleeper) ? 0 : EXIT_INTERRUPTED;
     }
 
     /**
@@ -123,9 +94,9 @@ public final class Countdown {
                 Locale.ROOT, "%02d:%02d:%02d", duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
     }
 
-    /** A {@code now} és {@code end} közti hátralévő idő, soha nem negatív. */
-    static Duration remaining(Instant now, Instant end) {
-        Duration left = Duration.between(now, end);
+    /** A {@code nowNanos} és {@code endNanos} ({@code System.nanoTime()} értékek) közti hátralévő idő, soha nem negatív. */
+    static Duration remaining(long nowNanos, long endNanos) {
+        Duration left = Duration.ofNanos(endNanos - nowNanos);
         return left.isNegative() ? Duration.ZERO : left;
     }
 
@@ -136,35 +107,25 @@ public final class Countdown {
     }
 
     /**
-     * Ennyit kell várni, hogy a kijelzett (felfelé kerekített) másodperc változzon: a hátralévő idő tört
-     * része, egész másodpercnél egy teljes másodperc. Mindig az aktuális hátralévő időből számol, így a ciklus
-     * lemaradása a következő lépésnél korrigálódik.
-     */
-    static Duration untilNextTick(Duration left) {
-        Duration fraction = left.minus(left.truncatedTo(ChronoUnit.SECONDS));
-        return fraction.isZero() ? Duration.ofSeconds(1) : fraction;
-    }
-
-    /**
      * Elindítja a visszaszámlálást: a végpontot a hívás pillanatában számolja ki, majd másodpercenként kiírja a
      * hátralévő időt, végül a "Done!" üzenetet. Megszakítás esetén visszaállítja a megszakítási jelzőt és kilép.
      *
      * @param total a visszaszámlálás hossza, legfeljebb {@link #MAX_TOTAL}
-     * @param clock az idő forrása (tesztben cserélhető)
+     * @param nanoTime az idő forrása, éles futásnál {@code System::nanoTime} (tesztben cserélhető)
      * @return {@code true}, ha a visszaszámlálás lejárt; {@code false}, ha megszakították
      */
-    static boolean run(Duration total, Clock clock, PrintStream out, Sleeper sleeper) {
-        Instant end = clock.instant().plus(total);
+    static boolean run(Duration total, LongSupplier nanoTime, PrintStream out, Sleeper sleeper) {
+        long endNanos = nanoTime.getAsLong() + total.toNanos();
         Duration left = total;
         while (!left.isZero()) {
             out.println(format(roundUpToSeconds(left)));
             try {
-                sleeper.sleep(untilNextTick(left));
+                sleeper.sleep(left.compareTo(ONE_SECOND) < 0 ? left : ONE_SECOND);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;
             }
-            left = remaining(clock.instant(), end);
+            left = remaining(nanoTime.getAsLong(), endNanos);
         }
         out.println("Done!");
         return true;
