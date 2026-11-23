@@ -54,6 +54,33 @@ public final class Main {
         }
 
         Map<String, Set<Integer>> commentable = new HashMap<>();
+        String prompt = buildPrompt(files, commentable);
+
+        String answer = llm.complete(rules, prompt);
+        JsonNode review = MAPPER.readTree(extractJson(answer));
+        Result result = render(review, minSeverity, commentable);
+
+        if (dryRun) {
+            System.out.println(result.summary());
+            result.inline().forEach(c -> System.out.println("\n[" + c.path() + ":" + c.line() + "]\n" + c.body()));
+            if (local) {
+                System.out.println(
+                        "\nLokális review: " + result.findings() + " " + minSeverity + " vagy annál súlyosabb találat.");
+                return result.findings() > 0 ? 1 : 0;
+            }
+            return 0;
+        }
+        github.postReview(github.headSha(), result.summary(), result.inline());
+        System.out.println("Review elküldve: " + result.inline().size() + " inline komment.");
+        return 0;
+    }
+
+    /** A review eredménye: a kiírandó összegzés, az inline kommentek, és a küszöböt elérő találatok száma. */
+    private record Result(String summary, List<InlineComment> inline, int findings) {}
+
+    /** A prompt a diffekből és a fordítási kimenetből; a kommentelhető sorokat a {@code commentable} térképbe tölti. */
+    private static String buildPrompt(List<ChangedFile> files, Map<String, Set<Integer>> commentable)
+            throws Exception {
         StringBuilder prompt = new StringBuilder("# Pull Request diff\n\n");
         for (ChangedFile f : files) {
             DiffUtil.Annotated a = DiffUtil.annotate(f.patch());
@@ -64,49 +91,40 @@ public final class Main {
             }
             prompt.append("## Fájl: ").append(f.filename()).append("\n```\n").append(a.text()).append("```\n\n");
         }
-        prompt.append("# Fordítási kimenet (mvn compile)\n```\n").append(readCompileLog()).append("\n```\n");
+        return prompt.append("# Fordítási kimenet (mvn compile)\n```\n")
+                .append(readCompileLog())
+                .append("\n```\n")
+                .toString();
+    }
 
-        String answer = llm.complete(rules, prompt.toString());
-        JsonNode review = MAPPER.readTree(extractJson(answer));
-
+    /** A modell válaszából összegzést épít: a küszöb feletti kommentek inline mennek, a többi összecsukott listába. */
+    private static Result render(JsonNode review, String minSeverity, Map<String, Set<Integer>> commentable) {
         StringBuilder summary = new StringBuilder("## AI Code Review\n\n")
                 .append(review.path("summary").asText("(nincs összegzés)")).append("\n");
         List<InlineComment> inline = new ArrayList<>();
-        List<String> minor = new ArrayList<>();
-        int blocking = 0;
+        List<String> belowThreshold = new ArrayList<>();
+        int findings = 0;
         for (JsonNode c : review.path("comments")) {
             String file = c.path("file").asText();
             int line = c.path("line").asInt(-1);
             String body = formatComment(c);
             if (!atLeast(c.path("severity").asText("minor"), minSeverity)) {
-                minor.add("- `" + file + ":" + line + "` " + body);
+                belowThreshold.add("- `" + file + ":" + line + "` " + body);
                 continue;
             }
-            blocking++;
+            findings++;
             if (commentable.getOrDefault(file, Set.of()).contains(line)) {
                 inline.add(new InlineComment(file, line, body));
             } else {
                 summary.append("\n- `").append(file).append(":").append(line).append("` ").append(body);
             }
         }
-        if (!minor.isEmpty()) {
-            summary.append("\n<details><summary>").append(minor.size())
+        if (!belowThreshold.isEmpty()) {
+            summary.append("\n<details><summary>").append(belowThreshold.size())
                     .append(" kisebb észrevétel (").append(minSeverity).append(" alatt)</summary>\n\n")
-                    .append(String.join("\n", minor)).append("\n</details>\n");
+                    .append(String.join("\n", belowThreshold)).append("\n</details>\n");
         }
-
-        if (dryRun) {
-            System.out.println(summary);
-            inline.forEach(c -> System.out.println("\n[" + c.path() + ":" + c.line() + "]\n" + c.body()));
-            if (local) {
-                System.out.println("\nLokális review: " + blocking + " " + minSeverity + " vagy annál súlyosabb találat.");
-                return blocking > 0 ? 1 : 0;
-            }
-            return 0;
-        }
-        github.postReview(github.headSha(), summary.toString(), inline);
-        System.out.println("Review elküldve: " + inline.size() + " inline komment.");
-        return 0;
+        return new Result(summary.toString(), inline, findings);
     }
 
     /** Igaz, ha a komment súlyossága eléri a minimumot; a modell által adott ismeretlen súlyosságot nem szűri ki. */

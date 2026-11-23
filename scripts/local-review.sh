@@ -15,7 +15,7 @@
 #   MIN_SEVERITY      a találatok küszöbe (alap: minor)
 #   COPILOT_MODEL     a használt modell
 #   NO_PUSH=1         csak review, nem pushol
-#   RESET_ON_FAIL=1   találatnál a még nem pusholt utolsó commitot soft reset-eli (a változások staged maradnak)
+
 set -euo pipefail
 
 BASE="${1:-main}"
@@ -52,11 +52,6 @@ echo "== Riport: $REPORT_DIR/latest.md"
 
 if [ "$STATUS" -ne 0 ]; then
   echo "== Találatok vannak, nem pusholok." >&2
-  if [ "${RESET_ON_FAIL:-}" = "1" ] && ! { git rev-parse --verify -q "origin/$BRANCH" >/dev/null \
-    && [ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")" ]; }; then
-    git reset --soft HEAD~1
-    echo "== Az utolsó commit soft reset-elve (a változások staged állapotban)." >&2
-  fi
   exit 1
 fi
 
