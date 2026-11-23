@@ -117,7 +117,7 @@ public final class Countdown {
     /**
      * HH:mm:ss formátum. Az órák nincsenek 24-re korlátozva, 99 óra felett az óra mező háromjegyű (pl. 100:00:00).
      */
-    public static String format(Duration duration) {
+    static String format(Duration duration) {
         return String.format(
                 Locale.ROOT, "%02d:%02d:%02d", duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
     }
