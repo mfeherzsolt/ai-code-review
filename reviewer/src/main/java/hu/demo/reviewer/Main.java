@@ -1,42 +1,168 @@
 package hu.demo.reviewer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import hu.demo.reviewer.GitHubClient.ChangedFile;
 import hu.demo.reviewer.GitHubClient.InlineComment;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
 
 /**
  * AI code review belépési pont.
  *
  * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, COPILOT_GITHUB_TOKEN (a Copilot CLI-nek).
- * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true.
+ * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true,
+ * SAVE_REPORT=true (modulonként menti a riportot: lokális módban {@code <modul>/target/local-review/latest.md}, egyébként
+ * {@code <modul>/target/review/latest.md}; a modulba nem tartozó fájlok riportja a repó gyökerének {@code target}
+ * könyvtárába kerül),
+ * MIN_SEVERITY (alap: minor; nit, minor, major vagy critical; az ez alatti kommentek nem inline kerülnek ki,
+ * hanem egy összecsukott listába).
+ *
+ * <p>Lokális mód: ha a LOCAL_BASE be van állítva (pl. main), a változásokat a {@code git diff $LOCAL_BASE...HEAD}
+ * adja, nem küldi el semmit a GitHubra (GITHUB_TOKEN, PR_NUMBER nem kell), és ha van MIN_SEVERITY-t elérő
+ * találat, {@link #EXIT_FINDINGS} kilépési kóddal tér vissza.
+ *
+ * <p>Kilépési kódok: {@link #EXIT_OK} siker; {@link #EXIT_FINDINGS} lokális módban találat van; minden más
+ * nem 0 érték (pl. 1, a JVM kezeletlen kivételnél) hiba.
  */
 public final class Main {
 
+    /** Siker: nincs (küszöböt elérő) találat, vagy a review elküldve. */
+    static final int EXIT_OK = 0;
+
+    /** Lokális módban van a küszöböt elérő találat; szándékosan különbözik a JVM hibakódjától (1). */
+    static final int EXIT_FINDINGS = 3;
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_PROMPT_CHARS = 60_000;
+    private static final List<String> SEVERITIES = List.of("nit", "minor", "major", "critical");
+
+    /** Az önmagát cáfoló "nincs teendő" jellegű megjegyzések (a "nem elfogadható" valódi észrevétel marad). */
+    private static final Pattern NO_ACTION =
+            Pattern.compile("nincs teendő|(?<!nem )elfogadható", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
     public static void main(String[] args) throws Exception {
-        boolean dryRun = "true".equalsIgnoreCase(System.getenv("DRY_RUN"));
-        GitHubClient github = new GitHubClient(env("GITHUB_TOKEN"), env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
+        System.exit(run());
+    }
+
+    /** A tényleges futás; a visszatérési érték a kilépési kód ({@link #EXIT_OK} vagy {@link #EXIT_FINDINGS}). */
+    private static int run() throws Exception {
+        String localBase = System.getenv("LOCAL_BASE");
+        boolean local = localBase != null && !localBase.isBlank();
+        boolean dryRun = local || "true".equalsIgnoreCase(System.getenv("DRY_RUN"));
+        GitHubClient github =
+                local ? null : new GitHubClient(env("GITHUB_TOKEN"), env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
         CopilotClient llm = new CopilotClient(envOr("COPILOT_CMD", "copilot"), System.getenv("COPILOT_MODEL"));
 
         String rules = Files.readString(Path.of(envOr("RULES_FILE", "agent.md")));
+        String minSeverity = parseSeverity(envOr("MIN_SEVERITY", "minor"));
 
-        List<ChangedFile> files = github.changedFiles();
+        List<ChangedFile> files = local ? LocalDiff.changedFiles(localBase) : github.changedFiles();
         if (files.isEmpty()) {
             System.out.println("Nincs review-zható változás.");
-            return;
+            return EXIT_OK;
         }
 
         Map<String, Set<Integer>> commentable = new HashMap<>();
+        String prompt = buildPrompt(files, commentable);
+
+        String answer = llm.complete(rules, prompt);
+        JsonNode review = parseReview(answer);
+        Result result = render(review, minSeverity, commentable);
+        String report = report(result.summary(), result.inline());
+        if ("true".equalsIgnoreCase(System.getenv("SAVE_REPORT"))) {
+            saveReportsOrWarn(Path.of("."), files, result, local ? "local-review" : "review");
+        }
+
+        if (dryRun) {
+            System.out.print(report);
+            if (local) {
+                System.out.println(
+                        "\nLokális review: " + result.findings() + " " + minSeverity + " vagy annál súlyosabb találat.");
+                return result.findings() > 0 ? EXIT_FINDINGS : EXIT_OK;
+            }
+            return EXIT_OK;
+        }
+        github.postReview(github.headSha(), result.summary(), result.inline());
+        System.out.println("Review elküldve: " + result.inline().size() + " inline komment.");
+        return EXIT_OK;
+    }
+
+    /** A modell válaszából a review JSON; érvénytelen JSON-nál a hiba tartalmazza a nyers választ a hibakereséshez. */
+    static JsonNode parseReview(String answer) throws JsonProcessingException {
+        try {
+            return MAPPER.readTree(extractJson(answer));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("A modell válasza nem érvényes JSON: " + answer, e);
+        }
+    }
+
+    /** A review eredménye: a kiírandó összegzés, az inline kommentek, és a küszöböt elérő találatok száma. */
+    record Result(String summary, List<InlineComment> inline, int findings) {}
+
+    /** Olvasható riport: az összegzés, majd az inline kommentek helyként és szöveggel. */
+    static String report(String summary, List<InlineComment> comments) {
+        StringBuilder report = new StringBuilder(summary).append("\n");
+        for (InlineComment c : comments) {
+            report.append("\n[").append(c.path()).append(":").append(c.line()).append("]\n").append(c.body()).append("\n");
+        }
+        return report.toString();
+    }
+
+    /**
+     * A fájl modulja: az első útvonalszegmens, ha abban van pom.xml; különben üres (a repó gyökere).
+     * A {@code root} a repó gyökere, amelyhez a fájl útvonala képest relatív.
+     */
+    static String moduleOf(Path root, String file) {
+        int slash = file.indexOf('/');
+        String first = slash < 0 ? "" : file.substring(0, slash);
+        return !first.isEmpty() && Files.exists(root.resolve(first).resolve("pom.xml")) ? first : "";
+    }
+
+    /** A riportmentés csak kiegészítő: írási hiba esetén figyelmeztet, de nem buktatja meg a review-t. */
+    static void saveReportsOrWarn(Path root, List<ChangedFile> files, Result result, String reportDir) {
+        try {
+            saveReports(root, files, result, reportDir);
+        } catch (IOException e) {
+            System.err.println("Figyelmeztetés: a riport mentése nem sikerült: " + e);
+        }
+    }
+
+    /**
+     * Modulonként menti a riportot a {@code <root>/<modul>/target/<reportDir>/latest.md} fájlba: az összegzés és az
+     * adott modul inline kommentjei. Minden olyan modulhoz készül riport, amelyben fájl változott, így nem marad
+     * régi riport; a modulba nem tartozó fájlok riportja a {@code <root>/target/<reportDir>} könyvtárba kerül.
+     * A futtatás végén ír, hogy hiba ne hagyjon részlegesen felülírt fájlt.
+     */
+    static void saveReports(Path root, List<ChangedFile> files, Result result, String reportDir) throws IOException {
+        Map<String, List<InlineComment>> commentsByModule = new TreeMap<>();
+        for (ChangedFile f : files) {
+            commentsByModule.putIfAbsent(moduleOf(root, f.filename()), new ArrayList<>());
+        }
+        for (InlineComment c : result.inline()) {
+            commentsByModule.computeIfAbsent(moduleOf(root, c.path()), module -> new ArrayList<>()).add(c);
+        }
+        for (Map.Entry<String, List<InlineComment>> entry : commentsByModule.entrySet()) {
+            Path file = root.resolve(entry.getKey()).resolve("target").resolve(reportDir).resolve("latest.md");
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, report(result.summary(), entry.getValue()));
+            System.out.println("Riport: " + root.relativize(file).normalize());
+        }
+    }
+
+    /** A prompt a diffekből és a fordítási kimenetből; a kommentelhető sorokat a {@code commentable} térképbe tölti. */
+    private static String buildPrompt(List<ChangedFile> files, Map<String, Set<Integer>> commentable)
+            throws Exception {
         StringBuilder prompt = new StringBuilder("# Pull Request diff\n\n");
         for (ChangedFile f : files) {
             DiffUtil.Annotated a = DiffUtil.annotate(f.patch());
@@ -47,32 +173,65 @@ public final class Main {
             }
             prompt.append("## Fájl: ").append(f.filename()).append("\n```\n").append(a.text()).append("```\n\n");
         }
-        prompt.append("# Fordítási kimenet (mvn compile)\n```\n").append(readCompileLog()).append("\n```\n");
+        return prompt.append("# Fordítási kimenet (mvn compile)\n```\n")
+                .append(readCompileLog())
+                .append("\n```\n")
+                .toString();
+    }
 
-        String answer = llm.complete(rules, prompt.toString());
-        JsonNode review = MAPPER.readTree(extractJson(answer));
-
+    /** A modell válaszából összegzést épít: a küszöb feletti kommentek inline mennek, a többi összecsukott listába. */
+    static Result render(JsonNode review, String minSeverity, Map<String, Set<Integer>> commentable) {
         StringBuilder summary = new StringBuilder("## AI Code Review\n\n")
                 .append(review.path("summary").asText("(nincs összegzés)")).append("\n");
         List<InlineComment> inline = new ArrayList<>();
+        List<String> belowThreshold = new ArrayList<>();
+        int findings = 0;
         for (JsonNode c : review.path("comments")) {
+            if (NO_ACTION.matcher(c.path("message").asText()).find()) {
+                continue;
+            }
             String file = c.path("file").asText();
             int line = c.path("line").asInt(-1);
             String body = formatComment(c);
+            if (!atLeast(c.path("severity").asText("minor"), minSeverity)) {
+                belowThreshold.add("- `" + file + ":" + line + "` " + body);
+                continue;
+            }
+            findings++;
             if (commentable.getOrDefault(file, Set.of()).contains(line)) {
                 inline.add(new InlineComment(file, line, body));
             } else {
                 summary.append("\n- `").append(file).append(":").append(line).append("` ").append(body);
             }
         }
-
-        if (dryRun) {
-            System.out.println(summary);
-            inline.forEach(c -> System.out.println("\n[" + c.path() + ":" + c.line() + "]\n" + c.body()));
-            return;
+        if (!belowThreshold.isEmpty()) {
+            summary.append("\n<details><summary>").append(belowThreshold.size())
+                    .append(" kisebb észrevétel (").append(minSeverity).append(" alatt)</summary>\n\n")
+                    .append(String.join("\n", belowThreshold)).append("\n</details>\n");
         }
-        github.postReview(github.headSha(), summary.toString(), inline);
-        System.out.println("Review elküldve: " + inline.size() + " inline komment.");
+        return new Result(summary.toString(), inline, findings);
+    }
+
+    /**
+     * Igaz, ha a komment súlyossága eléri a minimumot; a modell által adott ismeretlen súlyosságot {@code minor}-nak veszi.
+     * Ismeretlen {@code minimum}-ra hibát dob, hogy a szűrés ne kapcsolódjon ki csendben.
+     */
+    static boolean atLeast(String severity, String minimum) {
+        int minimumIndex = SEVERITIES.indexOf(minimum.toLowerCase(Locale.ROOT));
+        if (minimumIndex < 0) {
+            throw new IllegalArgumentException("Ismeretlen minimum súlyosság: " + minimum + " (lehet: " + SEVERITIES + ")");
+        }
+        int actual = SEVERITIES.indexOf(severity.toLowerCase(Locale.ROOT));
+        return (actual < 0 ? SEVERITIES.indexOf("minor") : actual) >= minimumIndex;
+    }
+
+    /** A beállított minimum súlyosság kisbetűs alakja; elgépelésnél hibát dob, hogy a szűrés ne kapcsolódjon ki csendben. */
+    static String parseSeverity(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (!SEVERITIES.contains(normalized)) {
+            throw new IllegalArgumentException("Ismeretlen MIN_SEVERITY: " + value + " (lehet: " + SEVERITIES + ")");
+        }
+        return normalized;
     }
 
     private static String formatComment(JsonNode c) {
