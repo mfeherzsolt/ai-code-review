@@ -5,13 +5,12 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.concurrent.TimeUnit;
 
 /** Egyszerű visszaszámláló: a hátralévő időt a megadott óra alapján számolja. */
 public final class Countdown {
 
-    /** Az alvás szemcsézettsége másodpercben. */
-    private static final long TICK_SECONDS = 1;
+    /** Várakozás két kiírás között, ha a hátralévő idő egész másodperc. */
+    private static final Duration TICK = Duration.ofSeconds(1);
 
     private final Clock clock;
     private final Instant end;
@@ -44,7 +43,7 @@ public final class Countdown {
     /** A várakozás absztrakciója, hogy a ciklus tesztelhető legyen. */
     @FunctionalInterface
     interface Sleeper {
-        void sleep(long seconds) throws InterruptedException;
+        void sleep(Duration duration) throws InterruptedException;
     }
 
     /**
@@ -60,7 +59,7 @@ public final class Countdown {
             System.exit(1);
             return;
         }
-        run(new Countdown(total, Clock.systemUTC()), System.out, TimeUnit.SECONDS::sleep);
+        run(new Countdown(total, Clock.systemUTC()), System.out, Thread::sleep);
     }
 
     static Duration parseSeconds(String[] args) {
@@ -90,6 +89,16 @@ public final class Countdown {
     }
 
     /**
+     * Ennyit kell várni, hogy a kijelzett (felfelé kerekített) másodperc változzon: a hátralévő idő tört része,
+     * egész másodpercnél pedig egy teljes {@link #TICK}. Mivel mindig az aktuális hátralévő időből számol,
+     * a ciklus lemaradása a következő lépésnél korrigálódik.
+     */
+    static Duration untilNextTick(Duration left) {
+        Duration roundedUp = roundUpToSeconds(left);
+        return TICK.minus(roundedUp.minus(left));
+    }
+
+    /**
      * Másodpercenként kiírja a hátralévő időt, amíg le nem telik, majd a "Done!" üzenetet.
      * Megszakítás esetén visszaállítja a megszakítási jelzőt és kilép.
      */
@@ -98,7 +107,7 @@ public final class Countdown {
         while (!left.isZero()) {
             out.println(format(roundUpToSeconds(left)));
             try {
-                sleeper.sleep(TICK_SECONDS);
+                sleeper.sleep(untilNextTick(left));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;

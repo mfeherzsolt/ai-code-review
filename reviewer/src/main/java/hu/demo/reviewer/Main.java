@@ -30,11 +30,11 @@ public final class Main {
 
         String rulesFile = envOr("RULES_FILE", "agent.md");
         String rules = Files.readString(Path.of(rulesFile));
-        System.out.println("Szabályok betöltve: " + rulesFile + " (" + rules.length() + " karakter)");
+        System.err.println("Szabályok betöltve: " + rulesFile + " (" + rules.length() + " karakter)");
 
         List<ChangedFile> files = github.changedFiles();
         if (files.isEmpty()) {
-            System.out.println("Nincs review-zható változás.");
+            System.err.println("Nincs review-zható változás.");
             return;
         }
 
@@ -74,7 +74,7 @@ public final class Main {
             return;
         }
         github.postReview(github.headSha(), summary.toString(), inline);
-        System.out.println("Review elküldve: " + inline.size() + " inline komment.");
+        System.err.println("Review elküldve: " + inline.size() + " inline komment.");
     }
 
     private static String formatComment(JsonNode c) {

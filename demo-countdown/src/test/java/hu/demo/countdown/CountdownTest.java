@@ -11,6 +11,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class CountdownTest {
@@ -82,7 +84,7 @@ class CountdownTest {
         Countdown countdown = new Countdown(Duration.ofSeconds(3), clock);
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
-        Countdown.run(countdown, new PrintStream(buffer), seconds -> clock.advance(Duration.ofSeconds(seconds)));
+        Countdown.run(countdown, new PrintStream(buffer), clock::advance);
 
         String lineSeparator = System.lineSeparator();
         assertEquals(
@@ -91,16 +93,43 @@ class CountdownTest {
     }
 
     @Test
-    void runRoundsFractionalRemainingUp() {
+    void runSleepsUntilNextSecondBoundaryForFractionalRemaining() {
         MutableClock clock = new MutableClock(START);
         Countdown countdown = new Countdown(Duration.ofMillis(1500), clock);
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        List<Duration> sleeps = new ArrayList<>();
 
-        Countdown.run(countdown, new PrintStream(buffer), seconds -> clock.advance(Duration.ofSeconds(seconds)));
+        Countdown.run(countdown, new PrintStream(buffer), duration -> {
+            sleeps.add(duration);
+            clock.advance(duration);
+        });
 
-        String output = buffer.toString();
-        assertTrue(output.startsWith("00:00:02"), output);
-        assertTrue(output.endsWith("Done!" + System.lineSeparator()), output);
+        String lineSeparator = System.lineSeparator();
+        assertEquals(
+                String.join(lineSeparator, "00:00:02", "00:00:01", "Done!") + lineSeparator, buffer.toString());
+        assertEquals(List.of(Duration.ofMillis(500), Duration.ofSeconds(1)), sleeps);
+    }
+
+    @Test
+    void runCorrectsForOversleeping() {
+        MutableClock clock = new MutableClock(START);
+        Countdown countdown = new Countdown(Duration.ofSeconds(3), clock);
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+
+        // Minden várakozás 200 ms-mal hosszabb a kértnél (lassú kimenet): a kijelzés nem csúszhat el.
+        Countdown.run(countdown, new PrintStream(buffer), duration -> clock.advance(duration.plusMillis(200)));
+
+        String lineSeparator = System.lineSeparator();
+        assertEquals(
+                String.join(lineSeparator, "00:00:03", "00:00:02", "00:00:01", "Done!") + lineSeparator,
+                buffer.toString());
+    }
+
+    @Test
+    void untilNextTickIsFractionOrFullSecond() {
+        assertEquals(Duration.ofMillis(500), Countdown.untilNextTick(Duration.ofMillis(1500)));
+        assertEquals(Duration.ofMillis(1), Countdown.untilNextTick(Duration.ofMillis(3001)));
+        assertEquals(Duration.ofSeconds(1), Countdown.untilNextTick(Duration.ofSeconds(3)));
     }
 
     @Test
@@ -109,7 +138,7 @@ class CountdownTest {
         Countdown countdown = new Countdown(Duration.ofSeconds(5), clock);
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
-        Countdown.run(countdown, new PrintStream(buffer), seconds -> {
+        Countdown.run(countdown, new PrintStream(buffer), duration -> {
             throw new InterruptedException();
         });
 
