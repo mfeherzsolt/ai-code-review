@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 
 /**
@@ -20,7 +21,8 @@ import java.util.regex.Pattern;
  *
  * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, COPILOT_GITHUB_TOKEN (a Copilot CLI-nek).
  * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true,
- * REPORT_FILE (ide menti a riportot: összegzés és inline kommentek; a szülőkönyvtárat létrehozza),
+ * SAVE_REPORT=true (modulonként menti a riportot a {@code <modul>/target/review/latest.md} fájlba; a modulba nem tartozó
+ * fájlok riportja a {@code target/review/latest.md}),
  * MIN_SEVERITY (alap: minor; nit, minor, major vagy critical; az ez alatti kommentek nem inline kerülnek ki,
  * hanem egy összecsukott listába).
  *
@@ -66,7 +68,6 @@ public final class Main {
         List<ChangedFile> files = local ? LocalDiff.changedFiles(localBase) : github.changedFiles();
         if (files.isEmpty()) {
             System.out.println("Nincs review-zható változás.");
-            saveReport("Nincs review-zható változás.\n");
             return EXIT_OK;
         }
 
@@ -76,8 +77,8 @@ public final class Main {
         String answer = llm.complete(rules, prompt);
         JsonNode review = MAPPER.readTree(extractJson(answer));
         Result result = render(review, minSeverity, commentable);
-        String report = report(result);
-        saveReport(report);
+        String report = report(result.summary(), result.inline());
+        saveReports(files, result);
 
         if (dryRun) {
             System.out.print(report);
@@ -97,25 +98,44 @@ public final class Main {
     record Result(String summary, List<InlineComment> inline, int findings) {}
 
     /** Olvasható riport: az összegzés, majd az inline kommentek helyként és szöveggel. */
-    static String report(Result result) {
-        StringBuilder report = new StringBuilder(result.summary()).append("\n");
-        for (InlineComment c : result.inline()) {
+    static String report(String summary, List<InlineComment> comments) {
+        StringBuilder report = new StringBuilder(summary).append("\n");
+        for (InlineComment c : comments) {
             report.append("\n[").append(c.path()).append(":").append(c.line()).append("]\n").append(c.body()).append("\n");
         }
         return report.toString();
     }
 
-    /** Ha a REPORT_FILE be van állítva, oda menti a riportot (a sikeres futás végén, hogy hiba ne írja felül részlegesen). */
-    private static void saveReport(String report) throws IOException {
-        String path = System.getenv("REPORT_FILE");
-        if (path == null || path.isBlank()) {
+    /**
+     * A fájl modulja: az első útvonalszegmens, ha abban van pom.xml; különben üres (a repó gyökere).
+     * A {@code root} a repó gyökere, amelyhez a fájl útvonala képest relatív.
+     */
+    static String moduleOf(Path root, String file) {
+        int slash = file.indexOf('/');
+        String first = slash < 0 ? "" : file.substring(0, slash);
+        return !first.isEmpty() && Files.exists(root.resolve(first).resolve("pom.xml")) ? first : "";
+    }
+
+    /**
+     * Ha a SAVE_REPORT=true, modulonként menti a riportot a {@code <modul>/target/review/latest.md} fájlba: az összegzés
+     * és az adott modul inline kommentjei. Minden olyan modulhoz készül riport, amelyben fájl változott, így nem
+     * marad régi riport. A futtatás végén ír, hogy hiba ne hagyjon részlegesen felülírt fájlt.
+     */
+    private static void saveReports(List<ChangedFile> files, Result result) throws IOException {
+        if (!"true".equalsIgnoreCase(System.getenv("SAVE_REPORT"))) {
             return;
         }
-        Path file = Path.of(path);
-        if (file.getParent() != null) {
+        Path root = Path.of(".");
+        Set<String> modules = new TreeSet<>();
+        files.forEach(f -> modules.add(moduleOf(root, f.filename())));
+        for (String module : modules) {
+            List<InlineComment> comments =
+                    result.inline().stream().filter(c -> moduleOf(root, c.path()).equals(module)).toList();
+            Path file = root.resolve(module).resolve("target").resolve("review").resolve("latest.md");
             Files.createDirectories(file.getParent());
+            Files.writeString(file, report(result.summary(), comments));
+            System.out.println("Riport: " + root.relativize(file).normalize());
         }
-        Files.writeString(file, report);
     }
 
     /** A prompt a diffekből és a fordítási kimenetből; a kommentelhető sorokat a {@code commentable} térképbe tölti. */

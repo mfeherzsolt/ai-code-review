@@ -6,8 +6,9 @@
 #
 # Mit csinál:
 #   1. lefordítja a demo appot (a fordítási kimenet bekerül a promptba, mint a CI-ban),
-#   2. lefuttatja a reviewert az utolsó commitokra ($BASE...HEAD), a riportot a
-#      target/local-review/latest.md fájlba is elmenti,
+#   2. lefuttatja a reviewert az utolsó commitokra ($BASE...HEAD), a riportot modulonként a
+#      <modul>/target/review/latest.md fájlba is elmenti (a modulba nem tartozó fájlok
+#      riportja: target/review/latest.md),
 #   3. ha nincs találat: pusholja az ágat; ha van, nem pushol.
 #
 # Kilépési kód: 0 siker; 3 találatok vannak (a reviewer EXIT_FINDINGS kódja); 2 nem commitolt változás van;
@@ -29,10 +30,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REVIEWER_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEMO_DIR="$REVIEWER_ROOT/demo-countdown"
 JAR="$REVIEWER_ROOT/reviewer/target/ai-reviewer.jar"
-REPORT_DIR="$REVIEWER_ROOT/target/local-review"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"' EXIT
+
+# A riportok helye (<modul>/target/review) a repó gyökeréhez képest adódik.
+cd "$REVIEWER_ROOT"
 
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   echo "Van nem commitolt változás: előbb commitolj, a review a commitokat nézi." >&2
@@ -53,10 +56,9 @@ fi
 echo "== Review: $BASE...$BRANCH"
 set +e
 LOCAL_BASE="$BASE" COMPILE_LOG="$LOG" RULES_FILE="${RULES_FILE:-$REVIEWER_ROOT/agent.md}" \
-  REPORT_FILE="$REPORT_DIR/latest.md" java -jar "$JAR"
+  SAVE_REPORT=true java -jar "$JAR"
 STATUS=$?
 set -e
-echo "== Riport: $REPORT_DIR/latest.md"
 
 case "$STATUS" in
   0) ;;

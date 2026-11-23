@@ -6,9 +6,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class MainTest {
 
@@ -95,10 +98,21 @@ class MainTest {
         Main.Result result =
                 Main.render(new ObjectMapper().readTree(REVIEW), "minor", Map.of("A.java", Set.of(3)));
 
-        String report = Main.report(result);
+        String report = Main.report(result.summary(), result.inline());
 
         assertTrue(report.startsWith("## AI Code Review"));
         assertTrue(report.contains("[A.java:3]\n**[major]** inline"));
+    }
+
+    @Test
+    void modulIsTheFirstPathSegmentWithAPom(@TempDir Path root) throws Exception {
+        Files.createDirectories(root.resolve("mod"));
+        Files.writeString(root.resolve("mod").resolve("pom.xml"), "<project/>");
+        Files.createDirectories(root.resolve("scripts"));
+
+        assertEquals("mod", Main.moduleOf(root, "mod/src/A.java"));
+        assertEquals("", Main.moduleOf(root, "scripts/local-review.sh"));
+        assertEquals("", Main.moduleOf(root, "agent.md"));
     }
 
     @Test

@@ -58,6 +58,13 @@ Legfeljebb 10 komment legyen, a legfontosabbak elöl.
 ### 8. Formázás (severity: `minor`)
 - A kimenet legyen `HH:mm:ss` formátumú (`%02d:%02d:%02d`), ne `1:5:3`.
 
+## Üzleti döntések (nem hibák)
+Ezek tudatos döntések, ne jelezd őket hibának, még ha első ránézésre gyanús is:
+- A `scripts/local-review.sh` minden futáskor újraépíti a reviewert (`mvn package -DskipTests`), hogy mindig a friss
+  kódot futtassa; nem kell gyorsítótárazás vagy "csak ha a jar hiányzik" logika.
+- A küszöböt elérő, de a diffen kívüli sorra mutató komment is találatnak számít (`findings`), és az összegzésben
+  jelenik meg, nem inline; ez szándékos.
+
 ## Mit NE csinálj
 - Ne kommentelj olyan sorra, ami nem szerepel a diffben.
 - Ne találj ki hibát; ha a kód jó, mondd ki az összegzésben.
