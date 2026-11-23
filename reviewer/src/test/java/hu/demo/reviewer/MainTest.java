@@ -141,6 +141,16 @@ class MainTest {
     }
 
     @Test
+    void reportSaveFailureDoesNotThrow(@TempDir Path root) throws Exception {
+        Files.writeString(root.resolve("target"), "fajl, nem konyvtar");
+        Main.Result result = new Main.Result("S", List.of(), 0);
+        List<GitHubClient.ChangedFile> files = List.of(new GitHubClient.ChangedFile("agent.md", "@@"));
+
+        assertThrows(java.io.IOException.class, () -> Main.saveReports(root, files, result, "review"));
+        Main.saveReportsOrWarn(root, files, result, "review");
+    }
+
+    @Test
     void modulIsTheFirstPathSegmentWithAPom(@TempDir Path root) throws Exception {
         Files.createDirectories(root.resolve("mod"));
         Files.writeString(root.resolve("mod").resolve("pom.xml"), "<project/>");

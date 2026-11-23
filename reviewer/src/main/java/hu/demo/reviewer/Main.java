@@ -81,7 +81,7 @@ public final class Main {
         Result result = render(review, minSeverity, commentable);
         String report = report(result.summary(), result.inline());
         if ("true".equalsIgnoreCase(System.getenv("SAVE_REPORT"))) {
-            saveReports(Path.of("."), files, result, local ? "local-review" : "review");
+            saveReportsOrWarn(Path.of("."), files, result, local ? "local-review" : "review");
         }
 
         if (dryRun) {
@@ -127,6 +127,15 @@ public final class Main {
         int slash = file.indexOf('/');
         String first = slash < 0 ? "" : file.substring(0, slash);
         return !first.isEmpty() && Files.exists(root.resolve(first).resolve("pom.xml")) ? first : "";
+    }
+
+    /** A riportmentés csak kiegészítő: írási hiba esetén figyelmeztet, de nem buktatja meg a review-t. */
+    static void saveReportsOrWarn(Path root, List<ChangedFile> files, Result result, String reportDir) {
+        try {
+            saveReports(root, files, result, reportDir);
+        } catch (IOException e) {
+            System.err.println("Figyelmeztetés: a riport mentése nem sikerült: " + e);
+        }
     }
 
     /**
