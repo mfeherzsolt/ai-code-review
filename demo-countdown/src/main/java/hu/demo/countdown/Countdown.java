@@ -34,7 +34,7 @@ public final class Countdown {
 
     /**
      * Használat: {@code Countdown <másodperc>}. A másodpercnek pozitív egész számnak kell lennie,
-     * legfeljebb 365 napnyinak (31536000). Hibás bemenet esetén rövid hibaüzenetet ír a hibakimenetre,
+     * legfeljebb {@link #MAX_TOTAL}. Hibás bemenet esetén rövid hibaüzenetet ír a hibakimenetre,
      * és 1-es kilépési kóddal tér vissza; megszakítás esetén a kilépési kód {@link #EXIT_INTERRUPTED}.
      */
     public static void main(String[] args) {
@@ -99,7 +99,7 @@ public final class Countdown {
         try {
             seconds = Long.parseLong(args[0]);
         } catch (NumberFormatException e) {
-            throw usage("Nem szám: " + args[0]);
+            throw usage("A másodpercnek egész számnak kell lennie (pl. 30).");
         }
         if (seconds <= 0) {
             throw usage("A másodpercnek pozitívnak kell lennie: " + seconds + ".");
