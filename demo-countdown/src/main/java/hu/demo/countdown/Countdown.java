@@ -96,8 +96,7 @@ public final class Countdown {
 
     /** A {@code nowNanos} és {@code endNanos} ({@code System.nanoTime()} értékek) közti hátralévő idő, soha nem negatív. */
     static Duration remaining(long nowNanos, long endNanos) {
-        Duration left = Duration.ofNanos(endNanos - nowNanos);
-        return left.isNegative() ? Duration.ZERO : left;
+        return Duration.ofNanos(Math.max(0, endNanos - nowNanos));
     }
 
     /** Felfelé kerekít egész másodpercre (pl. 1,5 mp -> 2 mp). */
