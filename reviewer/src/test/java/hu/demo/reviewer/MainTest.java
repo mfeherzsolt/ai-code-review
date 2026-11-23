@@ -38,8 +38,9 @@ class MainTest {
     }
 
     @Test
-    void unknownCommentSeverityIsNeverFiltered() {
-        assertTrue(Main.atLeast("weird", "major"));
+    void unknownCommentSeverityCountsAsMinor() {
+        assertTrue(Main.atLeast("weird", "minor"));
+        assertFalse(Main.atLeast("weird", "major"));
     }
 
     @Test
