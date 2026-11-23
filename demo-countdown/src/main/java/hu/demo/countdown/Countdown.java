@@ -54,6 +54,7 @@ public final class Countdown {
                 return ZoneOffset.UTC;
             }
 
+            /** Az óra csak {@link Instant}-ot ad, ami időzónától független, ezért a zóna cseréjének nincs hatása. */
             @Override
             public Clock withZone(ZoneId zone) {
                 return this;
