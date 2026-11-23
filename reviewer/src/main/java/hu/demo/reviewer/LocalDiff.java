@@ -3,6 +3,7 @@ package hu.demo.reviewer;
 import hu.demo.reviewer.GitHubClient.ChangedFile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -11,14 +12,24 @@ final class LocalDiff {
 
     private LocalDiff() {}
 
-    /** A {@code base...HEAD} közötti, nem törölt fájlok patchei, a GitHub API {@code patch} mezőjével azonos formában. */
+    /** A {@code base...HEAD} közötti, nem törölt fájlok patchei az aktuális könyvtár repójából. */
     static List<ChangedFile> changedFiles(String base) throws IOException, InterruptedException {
+        return changedFiles(Path.of("."), base);
+    }
+
+    /**
+     * A {@code base...HEAD} közötti, nem törölt fájlok patchei a megadott könyvtár repójából, a GitHub API
+     * {@code patch} mezőjével azonos formában.
+     */
+    static List<ChangedFile> changedFiles(Path repo, String base) throws IOException, InterruptedException {
         List<ChangedFile> files = new ArrayList<>();
-        for (String name : git("diff", "--name-only", "--diff-filter=d", base + "...HEAD").split("\n")) {
-            if (name.isBlank()) {
+        // -z: NUL-lal elválasztott, idézőjelezés nélküli fájlnevek (szóköz, ékezet is biztonságos).
+        String names = git(repo, "diff", "--name-only", "-z", "--diff-filter=d", base + "...HEAD");
+        for (String name : names.split("\0")) {
+            if (name.isEmpty()) {
                 continue;
             }
-            String patch = stripHeader(git("diff", base + "...HEAD", "--", name));
+            String patch = stripHeader(git(repo, "diff", base + "...HEAD", "--", name));
             if (!patch.isBlank()) {
                 files.add(new ChangedFile(name, patch));
             }
@@ -32,14 +43,21 @@ final class LocalDiff {
         return start < 0 ? "" : diff.substring(start == 0 ? 0 : start + 1).stripTrailing();
     }
 
-    private static String git(String... args) throws IOException, InterruptedException {
-        List<String> cmd = new ArrayList<>(List.of("git"));
+    private static String git(Path repo, String... args) throws IOException, InterruptedException {
+        List<String> cmd = new ArrayList<>(List.of("git", "-c", "core.quotePath=false"));
         cmd.addAll(List.of(args));
-        Process process = new ProcessBuilder(cmd).redirectError(ProcessBuilder.Redirect.INHERIT).start();
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        if (process.waitFor() != 0) {
-            throw new IllegalStateException("Sikertelen git parancs: " + String.join(" ", cmd));
+        Process process = new ProcessBuilder(cmd)
+                .directory(repo.toFile())
+                .redirectError(ProcessBuilder.Redirect.INHERIT)
+                .start();
+        try {
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (process.waitFor() != 0) {
+                throw new IllegalStateException("Sikertelen git parancs: " + String.join(" ", cmd));
+            }
+            return output;
+        } finally {
+            process.destroy(); // megszakítás vagy hiba esetén ne maradjon futó git folyamat
         }
-        return output;
     }
 }

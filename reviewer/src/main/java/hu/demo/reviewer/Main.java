@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -17,7 +18,8 @@ import java.util.Set;
  *
  * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, COPILOT_GITHUB_TOKEN (a Copilot CLI-nek).
  * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true,
- * MIN_SEVERITY (alap: major; az ez alatti kommentek nem inline kerülnek ki, hanem egy összecsukott listába).
+ * MIN_SEVERITY (alap: minor; nit, minor, major vagy critical; az ez alatti kommentek nem inline kerülnek ki,
+ * hanem egy összecsukott listába).
  *
  * <p>Lokális mód: ha a LOCAL_BASE be van állítva (pl. main), a változásokat a {@code git diff $LOCAL_BASE...HEAD}
  * adja, nem küldi el semmit a GitHubra (GITHUB_TOKEN, PR_NUMBER nem kell), és ha van MIN_SEVERITY-t elérő
@@ -30,6 +32,11 @@ public final class Main {
     private static final List<String> SEVERITIES = List.of("nit", "minor", "major", "critical");
 
     public static void main(String[] args) throws Exception {
+        System.exit(run());
+    }
+
+    /** A tényleges futás; a visszatérési érték a kilépési kód (nem 0 csak lokális módban, találat esetén). */
+    private static int run() throws Exception {
         String localBase = System.getenv("LOCAL_BASE");
         boolean local = localBase != null && !localBase.isBlank();
         boolean dryRun = local || "true".equalsIgnoreCase(System.getenv("DRY_RUN"));
@@ -38,11 +45,12 @@ public final class Main {
         CopilotClient llm = new CopilotClient(envOr("COPILOT_CMD", "copilot"), System.getenv("COPILOT_MODEL"));
 
         String rules = Files.readString(Path.of(envOr("RULES_FILE", "agent.md")));
+        String minSeverity = parseSeverity(envOr("MIN_SEVERITY", "minor"));
 
         List<ChangedFile> files = local ? LocalDiff.changedFiles(localBase) : github.changedFiles();
         if (files.isEmpty()) {
             System.out.println("Nincs review-zható változás.");
-            return;
+            return 0;
         }
 
         Map<String, Set<Integer>> commentable = new HashMap<>();
@@ -63,7 +71,6 @@ public final class Main {
 
         StringBuilder summary = new StringBuilder("## AI Code Review\n\n")
                 .append(review.path("summary").asText("(nincs összegzés)")).append("\n");
-        String minSeverity = envOr("MIN_SEVERITY", "major");
         List<InlineComment> inline = new ArrayList<>();
         List<String> minor = new ArrayList<>();
         int blocking = 0;
@@ -93,19 +100,28 @@ public final class Main {
             inline.forEach(c -> System.out.println("\n[" + c.path() + ":" + c.line() + "]\n" + c.body()));
             if (local) {
                 System.out.println("\nLokális review: " + blocking + " " + minSeverity + " vagy annál súlyosabb találat.");
-                System.exit(blocking > 0 ? 1 : 0);
+                return blocking > 0 ? 1 : 0;
             }
-            return;
+            return 0;
         }
         github.postReview(github.headSha(), summary.toString(), inline);
         System.out.println("Review elküldve: " + inline.size() + " inline komment.");
+        return 0;
     }
 
-    /** Igaz, ha a komment súlyossága eléri a minimumot; ismeretlen súlyosság esetén nem szűr. */
+    /** Igaz, ha a komment súlyossága eléri a minimumot; a modell által adott ismeretlen súlyosságot nem szűri ki. */
     static boolean atLeast(String severity, String minimum) {
-        int actual = SEVERITIES.indexOf(severity.toLowerCase());
-        int required = SEVERITIES.indexOf(minimum.toLowerCase());
-        return actual < 0 || required < 0 || actual >= required;
+        int actual = SEVERITIES.indexOf(severity.toLowerCase(Locale.ROOT));
+        return actual < 0 || actual >= SEVERITIES.indexOf(minimum);
+    }
+
+    /** A beállított minimum súlyosság kisbetűs alakja; elgépelésnél hibát dob, hogy a szűrés ne kapcsolódjon ki csendben. */
+    static String parseSeverity(String value) {
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (!SEVERITIES.contains(normalized)) {
+            throw new IllegalArgumentException("Ismeretlen MIN_SEVERITY: " + value + " (lehet: " + SEVERITIES + ")");
+        }
+        return normalized;
     }
 
     private static String formatComment(JsonNode c) {
