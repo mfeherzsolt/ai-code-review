@@ -18,6 +18,10 @@ import java.util.Set;
  * <p>Környezeti változók: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, COPILOT_GITHUB_TOKEN (a Copilot CLI-nek).
  * Opcionális: COPILOT_MODEL, COPILOT_CMD (alap: copilot), RULES_FILE (alap: agent.md), COMPILE_LOG, DRY_RUN=true,
  * MIN_SEVERITY (alap: major; az ez alatti kommentek nem inline kerülnek ki, hanem egy összecsukott listába).
+ *
+ * <p>Lokális mód: ha a LOCAL_BASE be van állítva (pl. main), a változásokat a {@code git diff $LOCAL_BASE...HEAD}
+ * adja, nem küldi el semmit a GitHubra (GITHUB_TOKEN, PR_NUMBER nem kell), és ha van MIN_SEVERITY-t elérő
+ * találat, 1-es kilépési kóddal tér vissza.
  */
 public final class Main {
 
@@ -26,13 +30,16 @@ public final class Main {
     private static final List<String> SEVERITIES = List.of("nit", "minor", "major", "critical");
 
     public static void main(String[] args) throws Exception {
-        boolean dryRun = "true".equalsIgnoreCase(System.getenv("DRY_RUN"));
-        GitHubClient github = new GitHubClient(env("GITHUB_TOKEN"), env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
+        String localBase = System.getenv("LOCAL_BASE");
+        boolean local = localBase != null && !localBase.isBlank();
+        boolean dryRun = local || "true".equalsIgnoreCase(System.getenv("DRY_RUN"));
+        GitHubClient github =
+                local ? null : new GitHubClient(env("GITHUB_TOKEN"), env("GITHUB_REPOSITORY"), env("PR_NUMBER"));
         CopilotClient llm = new CopilotClient(envOr("COPILOT_CMD", "copilot"), System.getenv("COPILOT_MODEL"));
 
         String rules = Files.readString(Path.of(envOr("RULES_FILE", "agent.md")));
 
-        List<ChangedFile> files = github.changedFiles();
+        List<ChangedFile> files = local ? LocalDiff.changedFiles(localBase) : github.changedFiles();
         if (files.isEmpty()) {
             System.out.println("Nincs review-zható változás.");
             return;
@@ -59,13 +66,17 @@ public final class Main {
         String minSeverity = envOr("MIN_SEVERITY", "major");
         List<InlineComment> inline = new ArrayList<>();
         List<String> minor = new ArrayList<>();
+        int blocking = 0;
         for (JsonNode c : review.path("comments")) {
             String file = c.path("file").asText();
             int line = c.path("line").asInt(-1);
             String body = formatComment(c);
             if (!atLeast(c.path("severity").asText("minor"), minSeverity)) {
                 minor.add("- `" + file + ":" + line + "` " + body);
-            } else if (commentable.getOrDefault(file, Set.of()).contains(line)) {
+                continue;
+            }
+            blocking++;
+            if (commentable.getOrDefault(file, Set.of()).contains(line)) {
                 inline.add(new InlineComment(file, line, body));
             } else {
                 summary.append("\n- `").append(file).append(":").append(line).append("` ").append(body);
@@ -80,6 +91,10 @@ public final class Main {
         if (dryRun) {
             System.out.println(summary);
             inline.forEach(c -> System.out.println("\n[" + c.path() + ":" + c.line() + "]\n" + c.body()));
+            if (local) {
+                System.out.println("\nLokális review: " + blocking + " " + minSeverity + " vagy annál súlyosabb találat.");
+                System.exit(blocking > 0 ? 1 : 0);
+            }
             return;
         }
         github.postReview(github.headSha(), summary.toString(), inline);
