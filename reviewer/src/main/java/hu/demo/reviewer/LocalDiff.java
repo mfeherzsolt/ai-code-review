@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -24,32 +23,43 @@ final class LocalDiff {
 
     /**
      * A {@code base...HEAD} közötti, nem törölt fájlok patchei a megadott könyvtár repójából, a GitHub API
-     * {@code patch} mezőjével azonos formában. Két git hívás: a fájlnevek, és az összes diff egyben, amit a
-     * {@code diff --git} fejlécek mentén darabol (a git mindkét kimenetben azonos sorrendben adja a fájlokat).
+     * {@code patch} mezőjével azonos formában. Egyetlen git hívás; a kimenetet a {@code diff --git} fejlécek
+     * mentén darabolja, a fájlnevet pedig minden darab saját {@code +++} sorából olvassa.
      */
     static List<ChangedFile> changedFiles(Path repo, String base) throws IOException, InterruptedException {
-        String range = base + "...HEAD";
-        // --no-renames: az átnevezés-felismerés a törölt+új fájlpárt egy bejegyzéssé vonná össze, és elcsúsztatná a sorrendet.
-        // -z: NUL-lal elválasztott, idézőjelezés nélküli fájlnevek (szóköz, ékezet is biztonságos).
-        List<String> names = Arrays.stream(git(repo, "diff", "--no-renames", "--name-only", "-z", "--diff-filter=d", range).split("\0"))
-                .filter(name -> !name.isEmpty())
-                .toList();
-        // Fejléc nélküli darabok; tartalmi sor soha nem kezdődik "diff --git "-tel (azok szóközzel, +/- jellel indulnak).
-        List<String> sections = Arrays.stream(git(repo, "diff", "--no-renames", "--diff-filter=d", range).split("(?m)^diff --git "))
-                .filter(section -> !section.isEmpty())
-                .toList();
-        if (names.size() != sections.size()) {
-            throw new IllegalStateException(
-                    "A fájlnevek (" + names.size() + ") és a diff darabok (" + sections.size() + ") száma eltér.");
-        }
+        // --no-renames: az átnevezés-felismerés nem fogja egy bejegyzésbe a törölt és az új fájlt.
+        String diff = git(repo, "diff", "--no-renames", "--diff-filter=d", base + "...HEAD");
         List<ChangedFile> files = new ArrayList<>();
-        for (int i = 0; i < names.size(); i++) {
-            String patch = stripHeader(sections.get(i));
+        // Tartalmi sor soha nem kezdődik "diff --git "-tel (azok szóközzel, +/- jellel indulnak).
+        for (String section : diff.split("(?m)^diff --git ")) {
+            String patch = stripHeader(section);
             if (!patch.isBlank()) {
-                files.add(new ChangedFile(names.get(i), patch));
+                files.add(new ChangedFile(fileName(section), patch));
             }
         }
         return files;
+    }
+
+    /**
+     * A darab fejlécének {@code +++ b/<név>} sorából a fájlnév. A git a szóközt tartalmazó név után tabulátort tesz,
+     * az idézőjelet vagy fordított perjelet tartalmazó nevet pedig idézőjelbe és escape-elve adja; ez utóbbit
+     * nem támogatjuk, hogy ne csendben rossz néven küldjünk kommentet.
+     */
+    private static String fileName(String section) {
+        for (String line : section.split("\n")) {
+            if (line.startsWith("@@")) {
+                break;
+            }
+            if (line.startsWith("+++ ")) {
+                int tab = line.indexOf('\t');
+                String name = tab < 0 ? line.substring(4) : line.substring(4, tab);
+                if (!name.startsWith("b/")) {
+                    throw new IllegalStateException("Nem támogatott fájlnév a diff fejlécében: " + line);
+                }
+                return name.substring(2);
+            }
+        }
+        throw new IllegalStateException("Nincs +++ sor a diff fejlécében: " + section);
     }
 
     /** Eldobja a fájlfejlécet (diff --git, index, ---, +++), az első hunk fejlécétől ({@code @@}) tartja meg a szöveget. */

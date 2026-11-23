@@ -49,6 +49,20 @@ class LocalDiffTest {
     }
 
     @Test
+    void rejectsFileNamesTheGitQuotes(@TempDir Path repo) throws Exception {
+        git(repo, "init", "-q", "-b", "main");
+        Files.writeString(repo.resolve("a.txt"), "a\n");
+        git(repo, "add", ".");
+        git(repo, "commit", "-q", "-m", "base");
+        git(repo, "checkout", "-q", "-b", "feature");
+        Files.writeString(repo.resolve("idézőjel\"es.txt"), "x\n");
+        git(repo, "add", "-A");
+        git(repo, "commit", "-q", "-m", "change");
+
+        assertThrows(IllegalStateException.class, () -> LocalDiff.changedFiles(repo, "main"));
+    }
+
+    @Test
     void failsOnUnknownBase(@TempDir Path repo) throws Exception {
         git(repo, "init", "-q", "-b", "main");
         assertThrows(IllegalStateException.class, () -> LocalDiff.changedFiles(repo, "nincs-ilyen-ag"));
