@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI code review – Copilot CLI-vel, CI-ban és push előtt</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #111c33;
+    --fg: #e5e7eb;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --warn: #f87171;
+    --ok: #4ade80;
+    --border: #1e3a5f;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  .deck { position: relative; width: 100vw; height: 100vh; }
+  .slide { position: absolute; inset: 0; padding: 6vh 8vw 9vh; display: none; flex-direction: column;
+    justify-content: center; gap: 1.2vh; font-size: clamp(16px, 2.3vh, 30px); line-height: 1.45; overflow: auto; }
+  .slide.active { display: flex; }
+  .slide.lead { align-items: center; text-align: center; }
+  h1 { color: var(--accent); font-size: 2.1em; margin: 0 0 .4em; line-height: 1.15; }
+  .slide.lead h1 { font-size: 3em; }
+  h2 { color: var(--muted); font-weight: 400; font-size: 1.3em; margin: 0; }
+  ul, ol { margin: .2em 0; padding-left: 1.3em; }
+  li { margin: .25em 0; }
+  code { background: #1e293b; padding: .05em .35em; border-radius: 4px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .9em; }
+  pre { background: #0b1220; border: 1px solid var(--border); border-radius: 8px; padding: .8em 1em; overflow: auto;
+    font-size: .8em; line-height: 1.35; margin: .4em 0; }
+  pre code { background: none; padding: 0; font-size: 1em; }
+  table { border-collapse: collapse; font-size: .85em; margin: .4em 0; }
+  th, td { border: 1px solid var(--border); padding: .35em .7em; text-align: left; vertical-align: top; }
+  th { background: var(--panel); color: var(--accent); }
+  blockquote { margin: .5em 0; padding: .6em 1em; border-left: 4px solid var(--accent); background: var(--panel); border-radius: 0 8px 8px 0; }
+  .warn { color: var(--warn); font-weight: 700; }
+  .ok { color: var(--ok); font-weight: 700; }
+  .muted { color: var(--muted); }
+  .check { list-style: none; padding-left: 0; }
+  .check li::before { content: "\2610\00a0"; color: var(--accent); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 2vw; }
+  .tip { margin-top: .6em; padding: .5em .9em; border: 1px solid var(--accent); border-radius: 8px; background: var(--panel); }
+  .hud { position: fixed; left: 0; right: 0; bottom: 0; height: 5vh; display: flex; align-items: center; justify-content: space-between;
+    padding: 0 2vw; color: var(--muted); font-size: 14px; background: rgba(15,23,42,.9); z-index: 10; }
+  .bar { position: fixed; left: 0; bottom: 5vh; height: 3px; background: var(--accent); z-index: 11; transition: width .2s; }
+  .hud button { background: none; border: 1px solid var(--border); color: var(--fg); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+  .hud button:hover { border-color: var(--accent); }
+  @media print {
+    html, body { overflow: visible; height: auto; background: #fff; color: #000; }
+    .deck { height: auto; width: auto; }
+    .slide { position: static; display: flex !important; page-break-after: always; min-height: 100vh; overflow: visible; }
+    .hud, .bar { display: none; }
+  }
+</style>
+</head>
+<body>
+<main class="deck" id="deck">
+
+<section class="slide lead">
+  <h1>AI code review</h1>
+  <h2>Copilot CLI-vel, a CI-ban és push előtt lokálisan</h2>
+  <p><strong>És amit a review-loopról tanultunk</strong></p>
+</section>
+
+<section class="slide">
+  <h1>Miről lesz szó</h1>
+  <ol>
+    <li>Mi ez a projekt, és mit old meg</li>
+    <li>Hogyan épül fel (CI és lokális mód)</li>
+    <li>A reviewer belülről</li>
+    <li>A szabályfájl: <code>agent.md</code></li>
+    <li>Zajszűrés és kapuzás</li>
+    <li><strong>A review-loop: amibe mi is belefutottunk</strong></li>
+    <li><strong>Hogyan adjunk szabályokat körültekintően</strong></li>
+  </ol>
+</section>
+
+<section class="slide">
+  <h1>A projekt</h1>
+  <p>A repó két modult tartalmaz:</p>
+  <table>
+    <tr><th>Modul</th><th>Szerep</th></tr>
+    <tr><td><code>reviewer/</code></td><td>Java 21 + Maven alapú AI code reviewer</td></tr>
+    <tr><td><code>demo-countdown/</code></td><td>demo alkalmazás (visszaszámláló), ezen próbáljuk ki a reviewert</td></tr>
+  </table>
+  <ul>
+    <li>A reviewer <strong>nem külön LLM-szolgáltatót</strong> hív, hanem a <strong>GitHub Copilot CLI-t</strong> (<code>copilot -p</code>).</li>
+    <li>A viselkedést egyetlen, emberi nyelven írt fájl adja: <strong><code>agent.md</code></strong>.</li>
+    <li>Ugyanaz a kód fut a CI-ban és a saját gépen.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Két futtatási mód</h1>
+<pre><code>        ┌──────────────── CI (pull request) ────────────────┐
+PR  ──► │ review.yml → java -jar ai-reviewer.jar            │ ──► inline PR kommentek
+        └───────────────────────────────────────────────────┘
+
+        ┌──────────── Lokális (push előtt) ─────────────────┐
+commit ►│ scripts/local-review.sh → LOCAL_BASE=main         │ ──► riport + push / nem push
+        └───────────────────────────────────────────────────┘</code></pre>
+  <ul>
+    <li><strong>CI</strong>: minden PR-ra (<code>opened</code>, <code>synchronize</code>, <code>reopened</code>), a GitHub API-ból veszi a diffet, inline kommenteket posztol.</li>
+    <li><strong>Lokális</strong>: <code>git diff main...HEAD</code>, semmi nem megy a GitHubra, és <strong>találat esetén nem pushol</strong>.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>A reviewer belülről</h1>
+<pre><code>diff ─► prompt ─► Copilot CLI ─► JSON ─► szűrés ─► riport / PR komment
+ │         ▲
+ │         └── fordítási kimenet (mvn test-compile)
+ └── fájlonként, "L&lt;sorszám&gt;| &lt;sor&gt;" formában</code></pre>
+  <ul>
+    <li><code>DiffUtil</code>: a patch soronkénti számozása, a kommentelhető (új/kontextus) sorok gyűjtése.</li>
+    <li><code>LocalDiff</code> / <code>GitHubClient</code>: a változások forrása.</li>
+    <li><code>CopilotClient</code>: a modell hívása.</li>
+    <li><code>Main</code>: prompt összeállítás, válasz feldolgozás, szűrés, riportmentés, kilépési kód.</li>
+    <li>A prompt legfeljebb 60 000 karakter; ami nem fér be, kimarad (jelezve).</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Copilot CLI mint LLM backend</h1>
+<pre><code>copilot -p "&lt;szabályok + diff + fordítási kimenet&gt;" -s --no-ask-user [--model &lt;modell&gt;]</code></pre>
+  <ul>
+    <li>A meglévő <strong>Copilot-előfizetést</strong> használja, külön API-kulcs nélkül.</li>
+    <li>CI-ban a <code>COPILOT_GITHUB_TOKEN</code> (fine-grained PAT, "Copilot Requests") hitelesít.</li>
+    <li><strong>Eszközengedélyt nem adunk át</strong>: a CLI nem írhat fájlt, nem futtathat parancsot, csak szöveget ad vissza.</li>
+    <li>A prompt kéri: ne használj eszközöket, csak a bemenetet dolgozd fel.</li>
+    <li>5 perces időkorlát; hibás kilépési kódnál a futás hibával áll le.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>A szabályfájl: <code>agent.md</code></h1>
+  <p>A reviewer "programja" nem kód, hanem <strong>prózában írt szabályok</strong>:</p>
+  <table>
+    <tr><th>#</th><th>Szabály</th><th>Súlyosság</th></tr>
+    <tr><td>1</td><td>Fordíthatóság</td><td><code>critical</code></td></tr>
+    <tr><td>2</td><td>Túlbonyolítás (KISS, YAGNI)</td><td><code>major</code></td></tr>
+    <tr><td>3</td><td>Elavult / hibára hajlamos idő API</td><td><code>major</code></td></tr>
+    <tr><td>4</td><td>Magic number-ek</td><td><code>minor</code></td></tr>
+    <tr><td>5</td><td>Hibakezelés</td><td><code>major</code></td></tr>
+    <tr><td>6</td><td>Tesztek</td><td><code>major</code></td></tr>
+    <tr><td>7</td><td>Olvashatóság</td><td>csak az összegzésben</td></tr>
+    <tr><td>8</td><td>Formázás (<code>HH:mm:ss</code>)</td><td><code>minor</code></td></tr>
+  </table>
+  <p>Plusz: <strong>Üzleti döntések</strong> (mit ne jelezzen) és <strong>Mit NE csinálj</strong>.</p>
+</section>
+
+<section class="slide">
+  <h1>Kötött kimenet</h1>
+  <p>A modell kizárólag egy JSON objektumot adhat vissza:</p>
+<pre><code>{
+  "summary": "2-4 mondatos összegzés",
+  "comments": [
+    { "file": "...", "line": 12, "severity": "major",
+      "message": "Mi a probléma és miért számít",
+      "suggestion": "javasolt kód egy sorban, vagy null" }
+  ]
+}</code></pre>
+  <ul>
+    <li>A <code>line</code> csak olyan sor lehet, ami a diffben szerepel.</li>
+    <li>A <code>suggestion</code> GitHubon "suggested change" blokk lesz.</li>
+    <li>Érvénytelen JSON esetén a hiba tartalmazza a nyers választ is a hibakereséshez.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Zajszűrés a kódban</h1>
+  <p>A modell nem determinisztikus, ezért a <strong>kód is védekezik</strong>:</p>
+  <ul>
+    <li><strong><code>MIN_SEVERITY</code></strong> (alap: <code>minor</code>): az alatti kommentek nem inline kerülnek ki, hanem egy összecsukott listába.</li>
+    <li>Ismeretlen súlyosság → <code>minor</code>; ismeretlen küszöb → <strong>hiba</strong> (ne kapcsolódjon ki csendben a szűrés).</li>
+    <li>Az önmagát cáfoló kommentek ("elfogadható", "nincs teendő") <strong>eldobásra kerülnek</strong>; a "nem elfogadható" marad.</li>
+    <li>A diffen kívüli sorra mutató, de küszöböt elérő komment <strong>az összegzésben</strong> jelenik meg.</li>
+    <li>Legfeljebb 10 komment, a legfontosabbak elöl.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Push előtti kapu: <code>local-review.sh</code></h1>
+<pre><code>scripts/local-review.sh [base-ág]     # alap: main
+NO_PUSH=1 MIN_SEVERITY=minor scripts/local-review.sh main</code></pre>
+  <div class="cols">
+    <ol>
+      <li>Nem commitolt változás → kilép (2)</li>
+      <li>Reviewer építése, demo app fordítása (a hiba a promptba kerül)</li>
+      <li>Review a <code>base...HEAD</code> diffre</li>
+      <li>Riport: <code>&lt;modul&gt;/target/local-review/latest.md</code></li>
+      <li>Döntés a kilépési kód alapján</li>
+    </ol>
+    <table>
+      <tr><th>Kód</th><th>Jelentés</th><th>Script</th></tr>
+      <tr><td>0</td><td>nincs találat</td><td><code>git push</code></td></tr>
+      <tr><td>3</td><td>van találat</td><td>nem pushol</td></tr>
+      <tr><td>más</td><td>a reviewer hibázott</td><td>nem pushol</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="slide lead">
+  <h1>A review-loop</h1>
+</section>
+
+<section class="slide">
+  <h1>Mi a review-loop?</h1>
+  <blockquote>A review találatot jelez → javítunk → a review <strong>újabb</strong> találatot jelez → javítunk → ... és a kör nem záródik le.</blockquote>
+  <ul>
+    <li>Ha a review <strong>kapu</strong> (nem pushol, amíg van találat), akkor a loop nem bosszantó, hanem <strong>blokkoló</strong>.</li>
+    <li>Az LLM-nek nincs "kész" állapota: ha hagyjuk, <strong>mindig talál valamit</strong>.</li>
+    <li>Egyetlen kör olcsó, de a körök száma nem korlátos.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Amibe mi is belefutottunk (1/2): a countdown</h1>
+  <p>A <code>demo-countdown</code> egy pár soros alkalmazás, mégis <strong class="warn">17 commit</strong> kellett a PR #1-hez.</p>
+  <p>A kód ide-oda mozgott:</p>
+<pre><code>rendszeróra  ─►  nanoTime-alapú Clock  ─►  LongSupplier a System.nanoTime() fölött
+(d3476bb)        (ba0ccb4)                 (c337235)</code></pre>
+  <ul>
+    <li>A <strong>2. szabály</strong> (ne absztrahálj) és a <strong>6. szabály</strong> (legyen tesztelhető) egymásnak feszült.</li>
+    <li>Minden javítás új észrevételt szült; a szabályt közben <strong>kétszer is pontosítani kellett</strong> (kivétel-lista a "NEM túlbonyolítás" alatt).</li>
+    <li>Jöttek a <code>nit</code> kommentek is, amik végül maguk mondták: "elfogadható".</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Amibe mi is belefutottunk (2/2): a reviewer maga</h1>
+  <p>A reviewer zajcsökkentése (PR #2) <strong class="warn">újabb 18 commit</strong> volt, és közben a reviewer a saját kódját is ugyanígy reviewelte.</p>
+  <p>Újra és újra felvetett dolgok, amik tudatos döntések voltak:</p>
+  <ul>
+    <li>a script minden futáskor újraépíti a reviewert → "gyorsítótár kellene"</li>
+    <li>a diffen kívüli találat az összegzésben jelenik meg → "miért nem inline?"</li>
+    <li>a CI artifact útvonala a gitignore-ozott <code>target</code>-re mutat → "hiba"</li>
+  </ul>
+  <p><strong>Megoldás:</strong> egy külön szakasz az <code>agent.md</code>-ben: <strong>Üzleti döntések (nem hibák)</strong>.</p>
+  <p class="ok">A kör ekkor záródott: az utolsó riport már üres találatlistával jött.</p>
+</section>
+
+<section class="slide">
+  <h1>Miért alakul ki a loop?</h1>
+  <table>
+    <tr><th>Ok</th><th>Hatás</th></tr>
+    <tr><td><strong>Ellentmondó szabályok</strong></td><td>a javítás az egyik szabálynak megfelel, a másikat sérti</td></tr>
+    <tr><td><strong>Kivétel nélküli szabály</strong></td><td>a modell a tudatos döntést is hibának látja</td></tr>
+    <tr><td><strong>Nincs "kész" feltétel</strong></td><td>a modell kitölti a rendelkezésre álló helyet</td></tr>
+    <tr><td><strong>Stílus és ízlés jelölve</strong></td><td>végtelen utánfinomítás, <code>nit</code>-ek</td></tr>
+    <tr><td><strong>Kapuzó küszöb túl alacsony</strong></td><td>egy apróság is blokkolja a pusht</td></tr>
+    <tr><td><strong>Nem determinisztikus modell</strong></td><td>ugyanarra a kódra más-más észrevétel</td></tr>
+    <tr><td><strong>Kontextus nélküli kör</strong></td><td>a modell nem tudja, mit döntöttünk el az előző körben</td></tr>
+  </table>
+</section>
+
+<section class="slide lead">
+  <h1>Hogyan adjunk szabályokat körültekintően</h1>
+</section>
+
+<section class="slide">
+  <h1>A szabályírás alapelvei (1/2)</h1>
+  <ol>
+    <li><strong>Egy szabály, egy cél, egy súlyosság.</strong> Ne legyen két szabály, ami ugyanazt kéri ellenkező irányból.</li>
+    <li><strong>Minden tiltáshoz tartozzon kivétel-lista.</strong> Ha a <code>Clock</code> paraméter lehet jogos, írd le: "NEM túlbonyolítás: ...".</li>
+    <li><strong>Mondd meg, mi a "kész".</strong> "Ha a kód rendben van, a <code>comments</code> lista lehet üres."</li>
+    <li><strong>Tilts ki egész kategóriákat.</strong> Nincs <code>nit</code>; stílus csak az összegzésben, nem <code>comments</code> elemként.</li>
+    <li><strong>Rögzítsd a tudatos döntéseket</strong> (Üzleti döntések), különben minden körben újra előjönnek.</li>
+  </ol>
+</section>
+
+<section class="slide">
+  <h1>A szabályírás alapelvei (2/2)</h1>
+  <ol start="6">
+    <li><strong>Konkrétan fogalmazz</strong>, mérhető jelekkel: "3+ előfordulás", "egyetlen implementáció és egyetlen hívó", "<code>/ 3600</code>, <code>% 60</code>".</li>
+    <li><strong>Írd le, mit javasoljon:</strong> nevezze meg a felesleges elemet és a kiváltó eszközt.</li>
+    <li><strong>Korlátozd a mennyiséget:</strong> legfeljebb 10 komment, fontossági sorrendben.</li>
+    <li><strong>A küszöböt állítsd a bizalmadhoz:</strong> <code>MIN_SEVERITY=minor</code> alatt semmi nem blokkol.</li>
+    <li><strong>A kimenetet is védd a kódban:</strong> szűrő az önmagát cáfoló kommentekre, validált súlyosság.</li>
+  </ol>
+</section>
+
+<section class="slide">
+  <h1>Példa: rossz és jó szabály</h1>
+  <p><span class="warn">Rossz</span> (kivétel és határ nélkül):</p>
+<pre><code>Kerüld a felesleges absztrakciót.
+Legyen a kód tesztelhető.</code></pre>
+  <p><span class="ok">Jobb</span> (az <code>agent.md</code>-ből, rövidítve):</p>
+<pre><code>Túlbonyolítás: külön osztály/interface/factory egyetlen implementációhoz és egyetlen hívóhoz.
+NEM túlbonyolítás: a tesztelhetőséget szolgáló behelyettesíthető függőség
+(Clock, LongSupplier időforrás), ha a teszt ténylegesen használja;
+a System.nanoTime() közvetlen használata.
+Egy észrevételben nevezd meg a felesleges elemet és azt, ami kiváltaná.</code></pre>
+</section>
+
+<section class="slide">
+  <h1>Ellenőrzőlista szabálymódosítás előtt</h1>
+  <ul class="check">
+    <li>Ütközik-e az új szabály egy meglévővel? (Olvasd át a <em>teljes</em> fájlt.)</li>
+    <li>Van-e a tiltáshoz kivétel, és tudja-e a modell, mi számít annak?</li>
+    <li>Benne van-e, hogy mikor <strong>nem</strong> kell semmit jelezni?</li>
+    <li>Nem lesz-e belőle <code>nit</code> vagy stíluskommentár?</li>
+    <li>Ha a modell elakad egy kérdésen: <strong>ez szabályhiba, nem kódhiba?</strong></li>
+    <li>Lefuttattad-e a reviewert a módosított szabállyal egy ismert, jó kódon, és üres listát ad?</li>
+  </ul>
+  <div class="tip"><strong>Tanács:</strong> ha a review harmadszor is ugyanazt (vagy az ellenkezőjét) kéri, ne a kódot javítsd, hanem az <code>agent.md</code>-t.</div>
+</section>
+
+<section class="slide">
+  <h1>Tanulságok</h1>
+  <ul>
+    <li>Az AI review <strong>szabályfüggő</strong>: a szabályfájl minősége többet számít, mint a modellé.</li>
+    <li>A szabályok <strong>kódként viselkednek</strong>: ütközhetnek, lehet hibájuk, érdemes verziózni és "tesztelni".</li>
+    <li>A kapu (push blokkolása) csak <strong>jól beállított küszöbbel és kilépési feltétellel</strong> működik.</li>
+    <li>A kimenet védelme (szűrés, validálás) ugyanolyan fontos, mint a prompt.</li>
+    <li>A loop jele: a javítások és a szabálypontosítások száma nő, a kód nem javul.</li>
+  </ul>
+</section>
+
+<section class="slide lead">
+  <h1>Köszönöm!</h1>
+  <h2>Kérdések?</h2>
+  <p class="muted"><code>README.md</code> · <code>agent.md</code> · <code>scripts/local-review.sh</code> · <code>reviewer/</code></p>
+</section>
+
+</main>
+
+<div class="bar" id="bar"></div>
+<div class="hud">
+  <span>AI code review</span>
+  <span><button id="prev" aria-label="Előző">&larr;</button> <span id="counter"></span> <button id="next" aria-label="Következő">&rarr;</button></span>
+  <span>nyilak / szóköz: lapozás · F: teljes képernyő</span>
+</div>
+
+<script>
+(function () {
+  var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var counter = document.getElementById('counter');
+  var bar = document.getElementById('bar');
+  var current = 0;
+
+  function show(index) {
+    current = Math.max(0, Math.min(slides.length - 1, index));
+    slides.forEach(function (s, i) { s.classList.toggle('active', i === current); });
+    counter.textContent = (current + 1) + ' / ' + slides.length;
+    bar.style.width = ((current + 1) / slides.length * 100) + '%';
+    history.replaceState(null, '', '#' + (current + 1));
+  }
+
+  function next() { show(current + 1); }
+  function prev() { show(current - 1); }
+
+  document.addEventListener('keydown', function (e) {
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ': e.preventDefault(); next(); break;
+      case 'ArrowLeft': case 'ArrowUp': case 'PageUp': e.preventDefault(); prev(); break;
+      case 'Home': show(0); break;
+      case 'End': show(slides.length - 1); break;
+      case 'f': case 'F':
+        if (document.fullscreenElement) { document.exitFullscreen(); } else { document.documentElement.requestFullscreen(); }
+        break;
+    }
+  });
+  document.getElementById('next').addEventListener('click', next);
+  document.getElementById('prev').addEventListener('click', prev);
+
+  var touchX = null;
+  document.addEventListener('touchstart', function (e) { touchX = e.changedTouches[0].clientX; });
+  document.addEventListener('touchend', function (e) {
+    if (touchX === null) { return; }
+    var dx = e.changedTouches[0].clientX - touchX;
+    if (Math.abs(dx) > 50) { dx < 0 ? next() : prev(); }
+    touchX = null;
+  });
+
+  var start = parseInt(location.hash.slice(1), 10);
+  show(isNaN(start) ? 0 : start - 1);
+})();
+</script>
+</body>
+</html>

@@ -8,6 +8,8 @@ A review kétféleképpen fut:
 - **CI-ban**: a `.github/workflows/review.yml` minden pull requestre lefuttatja, és inline kommentekként posztolja.
 - **Lokálisan**: a `scripts/local-review.sh` push előtt, a saját gépen, a GitHub használata nélkül.
 
+A projekt bemutatója: [Markdown (Marp)](docs/presentation.md), [HTML](docs/presentation.html).
+
 ## scripts/local-review.sh
 
 Push előtti ellenőrzés: lefuttatja ugyanazt a reviewert a commitolt változásokra, és csak akkor pushol, ha nincs találat.
