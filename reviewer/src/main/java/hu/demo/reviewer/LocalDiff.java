@@ -2,7 +2,6 @@ package hu.demo.reviewer;
 
 import hu.demo.reviewer.GitHubClient.ChangedFile;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -89,7 +88,7 @@ final class LocalDiff {
                     throw new IllegalStateException(
                             "Sikertelen git parancs (" + exitCode + "): " + String.join(" ", cmd));
                 }
-                return new String(Files.readAllBytes(output), StandardCharsets.UTF_8);
+                return Files.readString(output);
             } finally {
                 process.destroyForcibly(); // időtúllépés, megszakítás vagy hiba esetén ne maradjon futó git folyamat
             }
