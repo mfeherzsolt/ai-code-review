@@ -1,6 +1,7 @@
 package hu.demo.countdown;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -135,11 +136,29 @@ class CountdownTest {
         MutableClock clock = new MutableClock(START);
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
 
-        Countdown.run(Duration.ofSeconds(5), clock, new PrintStream(buffer), duration -> {
+        boolean completed = Countdown.run(Duration.ofSeconds(5), clock, new PrintStream(buffer), duration -> {
             throw new InterruptedException();
         });
 
+        assertFalse(completed);
         assertEquals("00:00:05" + NL, buffer.toString());
+        assertTrue(Thread.interrupted());
+    }
+
+    @Test
+    void executeReturnsInterruptedExitCodeWhenInterrupted() {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+        int exitCode = Countdown.execute(
+                new String[] {"5"},
+                new MutableClock(START),
+                new PrintStream(out),
+                new PrintStream(new ByteArrayOutputStream()),
+                duration -> {
+                    throw new InterruptedException();
+                });
+
+        assertEquals(Countdown.EXIT_INTERRUPTED, exitCode);
         assertTrue(Thread.interrupted());
     }
 

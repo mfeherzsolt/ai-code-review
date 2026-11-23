@@ -5,12 +5,21 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Locale;
 
-/** Egyszerű visszaszámláló: a hátralévő időt a falióra alapján számolja, másodpercenként kiírja. */
+/**
+ * Egyszerű visszaszámláló: a hátralévő időt a falióra alapján számolja, másodpercenként kiírja.
+ *
+ * <p>Az időforrás szándékosan a {@code Clock.systemUTC()}, nem monoton óra: a rendszeróra átállítása (NTP, kézi
+ * módosítás) eltolhatja a hátralévő időt, ezt a demó céljára elfogadott egyszerűsítésnek tekintjük.
+ */
 public final class Countdown {
 
     /** A megadható legnagyobb hossz; ennél nagyobb érték az {@link Instant} tartományát is túllépheti. */
     static final Duration MAX_TOTAL = Duration.ofDays(365);
+
+    /** A megszakított visszaszámlálás kilépési kódja (a SIGINT-nél szokásos 128 + 2). */
+    static final int EXIT_INTERRUPTED = 130;
 
     private Countdown() {}
 
@@ -23,7 +32,7 @@ public final class Countdown {
     /**
      * Használat: {@code Countdown <másodperc>}. A másodpercnek pozitív egész számnak kell lennie,
      * legfeljebb 365 napnyinak (31536000). Hibás bemenet esetén rövid hibaüzenetet ír a hibakimenetre,
-     * és 1-es kilépési kóddal tér vissza.
+     * és 1-es kilépési kóddal tér vissza; megszakítás esetén a kilépési kód {@link #EXIT_INTERRUPTED}.
      */
     public static void main(String[] args) {
         int exitCode = execute(args, Clock.systemUTC(), System.out, System.err, Thread::sleep);
@@ -36,7 +45,7 @@ public final class Countdown {
      * A {@code main} tesztelhető magja. Csak a bemenet feldolgozásakor dobott hibát kezeli (1-es kilépési kód),
      * a visszaszámlálás közbeni hibák nem nyelődnek el.
      *
-     * @return a folyamat kilépési kódja
+     * @return a folyamat kilépési kódja: 0 siker, 1 hibás bemenet, {@link #EXIT_INTERRUPTED} megszakítás
      */
     static int execute(String[] args, Clock clock, PrintStream out, PrintStream err, Sleeper sleeper) {
         Duration total;
@@ -46,10 +55,17 @@ public final class Countdown {
             err.println(e.getMessage());
             return 1;
         }
-        run(total, clock, out, sleeper);
-        return 0;
+        return run(total, clock, out, sleeper) ? 0 : EXIT_INTERRUPTED;
     }
 
+    /**
+     * A parancssori argumentumból kiolvassa a visszaszámlálás hosszát.
+     *
+     * @param args pontosan egy elem: a másodpercek száma, pozitív egész, legfeljebb {@link #MAX_TOTAL}
+     * @return a visszaszámlálás hossza
+     * @throws IllegalArgumentException ha az argumentum hiányzik, nem szám, nem pozitív vagy túl nagy; az
+     *     üzenet a használati útmutatót is tartalmazza
+     */
     static Duration parseSeconds(String[] args) {
         if (args.length != 1) {
             throw usage("Hiányzó paraméter.");
@@ -77,7 +93,8 @@ public final class Countdown {
      * HH:mm:ss formátum. Az órák nincsenek 24-re korlátozva, 99 óra felett az óra mező háromjegyű (pl. 100:00:00).
      */
     public static String format(Duration duration) {
-        return String.format("%02d:%02d:%02d", duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
+        return String.format(
+                Locale.ROOT, "%02d:%02d:%02d", duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
     }
 
     /** A {@code now} és {@code end} közti hátralévő idő, soha nem negatív. */
@@ -108,8 +125,9 @@ public final class Countdown {
      *
      * @param total a visszaszámlálás hossza, legfeljebb {@link #MAX_TOTAL}
      * @param clock az idő forrása (tesztben cserélhető)
+     * @return {@code true}, ha a visszaszámlálás lejárt; {@code false}, ha megszakították
      */
-    static void run(Duration total, Clock clock, PrintStream out, Sleeper sleeper) {
+    static boolean run(Duration total, Clock clock, PrintStream out, Sleeper sleeper) {
         Instant end = clock.instant().plus(total);
         Duration left = total;
         while (!left.isZero()) {
@@ -118,10 +136,11 @@ public final class Countdown {
                 sleeper.sleep(untilNextTick(left));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return;
+                return false;
             }
             left = remaining(clock.instant(), end);
         }
         out.println("Done!");
+        return true;
     }
 }
