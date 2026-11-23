@@ -3,7 +3,9 @@ package hu.demo.countdown;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.io.PrintStream;
 import java.time.temporal.ChronoUnit;
+import java.util.concurrent.TimeUnit;
 
 /** Egyszerű visszaszámláló: a hátralévő időt a megadott óra alapján számolja. */
 public final class Countdown {
@@ -34,43 +36,71 @@ public final class Countdown {
         return String.format("%02d:%02d:%02d", duration.toHours(), duration.toMinutesPart(), duration.toSecondsPart());
     }
 
+    /** Az alvás szemcsézettsége másodpercben. */
+    private static final long TICK_SECONDS = 1;
+
+    /** A várakozás absztrakciója, hogy a ciklus tesztelhető legyen. */
+    @FunctionalInterface
+    interface Sleeper {
+        void sleep(long seconds) throws InterruptedException;
+    }
+
+    /**
+     * Használat: {@code Countdown <másodperc>}. A másodpercnek pozitív egész számnak kell lennie.
+     * Hibás bemenet esetén rövid hibaüzenetet ír a hibakimenetre, és 1-es kilépési kóddal tér vissza.
+     */
     public static void main(String[] args) {
-        Countdown countdown = new Countdown(parseSeconds(args), Clock.systemUTC());
-        run(countdown);
+        try {
+            Countdown countdown = new Countdown(parseSeconds(args), Clock.systemUTC());
+            run(countdown, System.out, TimeUnit.SECONDS::sleep);
+        } catch (IllegalArgumentException e) {
+            System.err.println(e.getMessage());
+            System.exit(1);
+        }
     }
 
     private static Duration parseSeconds(String[] args) {
         if (args.length != 1) {
             throw usage("Hiányzó paraméter.");
         }
+        long seconds;
         try {
-            return Duration.ofSeconds(Long.parseLong(args[0]));
+            seconds = Long.parseLong(args[0]);
         } catch (NumberFormatException e) {
             throw usage("Nem szám: " + args[0]);
         }
+        if (seconds <= 0) {
+            throw usage("A másodpercnek pozitívnak kell lennie: " + seconds + ".");
+        }
+        return Duration.ofSeconds(seconds);
     }
 
     private static IllegalArgumentException usage(String reason) {
         return new IllegalArgumentException(reason + " Használat: Countdown <másodperc>");
     }
 
-    private static Duration roundUpToSeconds(Duration duration) {
+    /** Felfelé kerekít egész másodpercre (pl. 1,5 mp -> 2 mp). */
+    static Duration roundUpToSeconds(Duration duration) {
         Duration truncated = duration.truncatedTo(ChronoUnit.SECONDS);
         return truncated.equals(duration) ? duration : truncated.plusSeconds(1);
     }
 
-    private static void run(Countdown countdown) {
+    /**
+     * Másodpercenként kiírja a hátralévő időt, amíg le nem telik, majd a "Done!" üzenetet.
+     * Megszakítás esetén visszaállítja a megszakítási jelzőt és kilép.
+     */
+    static void run(Countdown countdown, PrintStream out, Sleeper sleeper) {
         Duration left = countdown.remaining();
         while (!left.isZero()) {
-            System.out.println(format(roundUpToSeconds(left)));
+            out.println(format(roundUpToSeconds(left)));
             try {
-                Thread.sleep(1000);
+                sleeper.sleep(TICK_SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             }
             left = countdown.remaining();
         }
-        System.out.println("Done!");
+        out.println("Done!");
     }
 }

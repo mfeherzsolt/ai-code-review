@@ -2,7 +2,10 @@ package hu.demo.countdown;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -44,6 +47,55 @@ class CountdownTest {
     void formatsAsHoursMinutesSeconds() {
         assertEquals("00:00:00", Countdown.format(Duration.ZERO));
         assertEquals("01:05:03", Countdown.format(Duration.ofSeconds(3903)));
+    }
+
+    @Test
+    void roundsUpToWholeSeconds() {
+        assertEquals("00:00:02", Countdown.format(Countdown.roundUpToSeconds(Duration.ofMillis(1500))));
+        assertEquals(Duration.ofSeconds(1), Countdown.roundUpToSeconds(Duration.ofMillis(1)));
+        assertEquals(Duration.ofSeconds(3), Countdown.roundUpToSeconds(Duration.ofSeconds(3)));
+        assertEquals(Duration.ZERO, Countdown.roundUpToSeconds(Duration.ZERO));
+    }
+
+    @Test
+    void runPrintsEachSecondAndDone() {
+        MutableClock clock = new MutableClock(START);
+        Countdown countdown = new Countdown(Duration.ofSeconds(3), clock);
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+
+        Countdown.run(countdown, new PrintStream(buffer), seconds -> clock.advance(Duration.ofSeconds(seconds)));
+
+        String lineSeparator = System.lineSeparator();
+        assertEquals(
+                String.join(lineSeparator, "00:00:03", "00:00:02", "00:00:01", "Done!") + lineSeparator,
+                buffer.toString());
+    }
+
+    @Test
+    void runRoundsFractionalRemainingUp() {
+        MutableClock clock = new MutableClock(START);
+        Countdown countdown = new Countdown(Duration.ofMillis(1500), clock);
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+
+        Countdown.run(countdown, new PrintStream(buffer), seconds -> clock.advance(Duration.ofSeconds(seconds)));
+
+        String output = buffer.toString();
+        assertTrue(output.startsWith("00:00:02"), output);
+        assertTrue(output.endsWith("Done!" + System.lineSeparator()), output);
+    }
+
+    @Test
+    void runStopsWhenInterrupted() {
+        MutableClock clock = new MutableClock(START);
+        Countdown countdown = new Countdown(Duration.ofSeconds(5), clock);
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+
+        Countdown.run(countdown, new PrintStream(buffer), seconds -> {
+            throw new InterruptedException();
+        });
+
+        assertEquals("00:00:05" + System.lineSeparator(), buffer.toString());
+        assertTrue(Thread.interrupted());
     }
 
     /** Kézzel léptethető óra a determinisztikus tesztekhez. */
