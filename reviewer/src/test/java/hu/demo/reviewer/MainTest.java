@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -102,6 +103,32 @@ class MainTest {
 
         assertTrue(report.startsWith("## AI Code Review"));
         assertTrue(report.contains("[A.java:3]\n**[major]** inline"));
+    }
+
+    @Test
+    void savesOneReportPerChangedModuleWithItsOwnComments(@TempDir Path root) throws Exception {
+        Files.createDirectories(root.resolve("mod"));
+        Files.writeString(root.resolve("mod").resolve("pom.xml"), "<project/>");
+        Files.createDirectories(root.resolve("other"));
+        Files.writeString(root.resolve("other").resolve("pom.xml"), "<project/>");
+        Main.Result result = new Main.Result(
+                "SUMMARY",
+                List.of(
+                        new GitHubClient.InlineComment("mod/A.java", 3, "modul-komment"),
+                        new GitHubClient.InlineComment("agent.md", 1, "gyoker-komment")),
+                2);
+        List<GitHubClient.ChangedFile> files = List.of(
+                new GitHubClient.ChangedFile("mod/A.java", "@@"), new GitHubClient.ChangedFile("agent.md", "@@"));
+
+        Main.saveReports(root, files, result, "local-review");
+
+        String modReport = Files.readString(root.resolve("mod/target/local-review/latest.md"));
+        String rootReport = Files.readString(root.resolve("target/local-review/latest.md"));
+        assertTrue(modReport.contains("SUMMARY") && modReport.contains("modul-komment"));
+        assertFalse(modReport.contains("gyoker-komment"));
+        assertTrue(rootReport.contains("gyoker-komment"));
+        assertFalse(rootReport.contains("modul-komment"));
+        assertFalse(Files.exists(root.resolve("other/target")));
     }
 
     @Test

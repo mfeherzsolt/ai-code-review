@@ -79,7 +79,9 @@ public final class Main {
         JsonNode review = MAPPER.readTree(extractJson(answer));
         Result result = render(review, minSeverity, commentable);
         String report = report(result.summary(), result.inline());
-        saveReports(files, result, local ? "local-review" : "review");
+        if ("true".equalsIgnoreCase(System.getenv("SAVE_REPORT"))) {
+            saveReports(Path.of("."), files, result, local ? "local-review" : "review");
+        }
 
         if (dryRun) {
             System.out.print(report);
@@ -118,15 +120,12 @@ public final class Main {
     }
 
     /**
-     * Ha a SAVE_REPORT=true, modulonként menti a riportot a {@code <modul>/target/<reportDir>/latest.md} fájlba: az
-     * összegzés és az adott modul inline kommentjei. Minden olyan modulhoz készül riport, amelyben fájl változott, így
-     * nem marad régi riport. A futtatás végén ír, hogy hiba ne hagyjon részlegesen felülírt fájlt.
+     * Modulonként menti a riportot a {@code <root>/<modul>/target/<reportDir>/latest.md} fájlba: az összegzés és az
+     * adott modul inline kommentjei. Minden olyan modulhoz készül riport, amelyben fájl változott, így nem marad
+     * régi riport; a modulba nem tartozó fájlok riportja a {@code <root>/target/<reportDir>} könyvtárba kerül.
+     * A futtatás végén ír, hogy hiba ne hagyjon részlegesen felülírt fájlt.
      */
-    private static void saveReports(List<ChangedFile> files, Result result, String reportDir) throws IOException {
-        if (!"true".equalsIgnoreCase(System.getenv("SAVE_REPORT"))) {
-            return;
-        }
-        Path root = Path.of(".");
+    static void saveReports(Path root, List<ChangedFile> files, Result result, String reportDir) throws IOException {
         Map<String, List<InlineComment>> commentsByModule = new TreeMap<>();
         for (ChangedFile f : files) {
             commentsByModule.putIfAbsent(moduleOf(root, f.filename()), new ArrayList<>());
