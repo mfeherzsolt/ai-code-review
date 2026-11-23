@@ -49,10 +49,11 @@ Legfeljebb 10 komment legyen, a legfontosabbak elöl.
 - Ha új logika van, de nincs hozzá JUnit teszt, jelezd (a fájlra, ahol a logika van).
 - A countdown logikát úgy érdemes írni, hogy a hátralévő idő számítása tesztelhető legyen (pl. `Clock` vagy `LongSupplier` paraméter).
 
-### 7. Olvashatóság (severity: `minor`)
+### 7. Olvashatóság (csak az összegzésben, nem komment)
 - Egybetűs változónevek (`h`, `m`, `s`) beszédesebb névre cserélése.
 - Publikus osztályok/metódusok Javadoc-ja hiányzik.
 - Egy metódus legyen rövid, egy dolgot csináljon (`main`-ben ne legyen minden).
+- Ezeket a `comments` közé ne írd, lásd "Mit NE csinálj".
 
 ### 8. Formázás (severity: `minor`)
 - A kimenet legyen `HH:mm:ss` formátumú (`%02d:%02d:%02d`), ne `1:5:3`.
@@ -64,6 +65,9 @@ Legfeljebb 10 komment legyen, a legfontosabbak elöl.
 - Ne adj `nit` súlyosságú észrevételt: stílusbeli apróságot, ízlésbeli javaslatot, és olyan megjegyzést, ami
   végül "elfogadható" vagy "nincs teendő", ne írj le. Csak `minor` vagy annál súlyosabb, ténylegesen javítandó
   dolgot jelezz.
+- Stílusbeli észrevételt (elnevezés, Javadoc hiánya, metódus vagy osztály felbontása, kódszervezés, olvashatóság)
+  ne írj `comments` elemként. Ha említésre méltó, legfeljebb egy mondatban az `summary`-ban szerepeljen; ha nincs
+  mellette érdemi mondanivaló, inkább maradjon ki teljesen.
 - Ha a kód a fenti szabályok szerint rendben van, a `comments` lista lehet üres.
 
 ## Kimeneti formátum

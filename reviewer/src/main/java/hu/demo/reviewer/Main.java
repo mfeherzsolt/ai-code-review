@@ -136,10 +136,17 @@ public final class Main {
         return new Result(summary.toString(), inline, findings);
     }
 
-    /** Igaz, ha a komment súlyossága eléri a minimumot; a modell által adott ismeretlen súlyosságot nem szűri ki. */
+    /**
+     * Igaz, ha a komment súlyossága eléri a minimumot; a modell által adott ismeretlen súlyosságot nem szűri ki.
+     * Ismeretlen {@code minimum}-ra hibát dob, hogy a szűrés ne kapcsolódjon ki csendben.
+     */
     static boolean atLeast(String severity, String minimum) {
+        int minimumIndex = SEVERITIES.indexOf(minimum.toLowerCase(Locale.ROOT));
+        if (minimumIndex < 0) {
+            throw new IllegalArgumentException("Ismeretlen minimum súlyosság: " + minimum + " (lehet: " + SEVERITIES + ")");
+        }
         int actual = SEVERITIES.indexOf(severity.toLowerCase(Locale.ROOT));
-        return actual < 0 || actual >= SEVERITIES.indexOf(minimum);
+        return actual < 0 || actual >= minimumIndex;
     }
 
     /** A beállított minimum súlyosság kisbetűs alakja; elgépelésnél hibát dob, hogy a szűrés ne kapcsolódjon ki csendben. */

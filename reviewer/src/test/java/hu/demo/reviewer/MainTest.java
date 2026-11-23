@@ -39,6 +39,11 @@ class MainTest {
     }
 
     @Test
+    void rejectsUnknownMinimumInAtLeast() {
+        assertThrows(IllegalArgumentException.class, () -> Main.atLeast("minor", "weird"));
+    }
+
+    @Test
     void parsesMinimumSeverity() {
         assertEquals("minor", Main.parseSeverity("Minor"));
         assertEquals("nit", Main.parseSeverity("nit"));
