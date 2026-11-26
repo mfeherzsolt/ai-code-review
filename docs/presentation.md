@@ -33,6 +33,7 @@ Copilot CLI-vel, a CI-ban és push előtt lokálisan
 6. **Demó: szándékosan elrontott kód**
 7. **A review-loop: amibe mi is belefutottunk**
 8. **Hogyan adjunk szabályokat körültekintően**
+9. **Vízió: merre tovább a reviewerrel**
 
 ---
 
@@ -384,6 +385,22 @@ Egy észrevételben nevezd meg a felesleges elemet és azt, ami kiváltaná.
 - [ ] Lefuttattad-e a reviewert a módosított szabállyal egy ismert, jó kódon, és üres listát ad?
 
 **Tanács:** ha a review harmadszor is ugyanazt (vagy az ellenkezőjét) kéri, ne a kódot javítsd, hanem az `agent.md`-t.
+
+---
+
+# Vízió: merre tovább a reviewerrel
+
+**Cél:** a reviewer egy előre elérhető, verziózott csomag, amit a projektek csak használnak.
+
+| Terület | Elképzelés |
+|---------|------------|
+| **Kontextus** | a PR leírása és a kapcsolódó issue is a promptba kerül: a modell a szándékot is látja |
+| **Loop ellen** | projektenkénti **whitelist** az ismert, elfogadott találatokra; **plafon** a körökre: adott kör után a reviewer jelzi, hogy valószínűleg szabályhiba van, nem kódhiba |
+| **Szabályminőség** | a szabályfájl tesztelése: ismert hibás kód találatot ad, ismert jó kód üres listát |
+| **Javítási javaslat** | többsoros patch egy követett mappában, lokálisan ellenőrizve és alkalmazva (`git apply`) |
+| **Integráció** | lokális pre-push hook vagy a build része; CI-ban a workflow fut |
+| **Modell** | konfigurálható (property), nem csak Copilot; más szolgáltató is bekapcsolható |
+| **Üzemeltetés** | költség és futásidő mérése; titokszűrés a diffből, mielőtt a modell megkapja |
 
 ---
 
