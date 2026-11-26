@@ -73,9 +73,6 @@ public final class Countdown {
         } catch (NumberFormatException e) {
             throw usage("A másodpercnek egész számnak kell lennie (pl. 30).");
         }
-        if (seconds <= 0) {
-            throw usage("A másodpercnek pozitívnak kell lennie: " + seconds + ".");
-        }
         if (seconds > MAX_TOTAL.getSeconds()) {
             throw usage("A másodperc legfeljebb " + MAX_TOTAL.getSeconds() + " lehet.");
         }
