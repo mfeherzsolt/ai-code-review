@@ -21,6 +21,8 @@ Copilot CLI-vel, a CI-ban és push előtt lokálisan
 
 **És amit a review-loopról tanultunk**
 
+GitHub: <https://github.com/mfeherzsolt/ai-code-review>
+
 ---
 
 # Miről lesz szó
@@ -420,5 +422,7 @@ Egy észrevételben nevezd meg a felesleges elemet és azt, ami kiváltaná.
 # Köszönöm!
 
 Kérdések?
+
+GitHub: <https://github.com/mfeherzsolt/ai-code-review>
 
 `README.md` · `agent.md` · `scripts/local-review.sh` · `reviewer/`
