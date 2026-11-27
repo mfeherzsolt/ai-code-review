@@ -63,6 +63,7 @@
   <h1>AI code review</h1>
   <h2>Copilot CLI-vel, a CI-ban és push előtt lokálisan</h2>
   <p><strong>És amit a review-loopról tanultunk</strong></p>
+  <p>GitHub: <a href="https://github.com/mfeherzsolt/ai-code-review" target="_blank" rel="noopener">https://github.com/mfeherzsolt/ai-code-review</a></p>
 </section>
 
 <section class="slide">
@@ -73,8 +74,10 @@
     <li>A reviewer belülről</li>
     <li>A szabályfájl: <code>agent.md</code></li>
     <li>Zajszűrés és kapuzás</li>
+    <li><strong>Demó: szándékosan elrontott kód</strong></li>
     <li><strong>A review-loop: amibe mi is belefutottunk</strong></li>
     <li><strong>Hogyan adjunk szabályokat körültekintően</strong></li>
+    <li><strong>Vízió: merre tovább a reviewerrel</strong></li>
   </ol>
 </section>
 
@@ -204,6 +207,68 @@ NO_PUSH=1 MIN_SEVERITY=minor scripts/local-review.sh main</code></pre>
 </section>
 
 <section class="slide lead">
+  <h1>Demó</h1>
+  <h2>Szándékosan elrontott kód, és a reviewer reakciója</h2>
+</section>
+
+<section class="slide">
+  <h1>Demó (1/4): a hiba</h1>
+  <p>A működő <code>Countdown.java</code>-ból <strong>egyetlen ellenőrzést</strong> veszünk ki (ág: <code>demo/bad-countdown</code>, commit: <code>e63cd5b</code>):</p>
+<pre><code>         } catch (NumberFormatException e) {
+             throw usage("A másodpercnek egész számnak kell lennie (pl. 30).");
+         }
+<span class="warn">-        if (seconds &lt;= 0) {
+-            throw usage("A másodpercnek pozitívnak kell lennie: " + seconds + ".");
+-        }</span>
+         if (seconds &gt; MAX_TOTAL.getSeconds()) {</code></pre>
+  <ul>
+    <li>A kód <strong>lefordul</strong>, szintaktikailag hibátlan: a fordító nem szól.</li>
+    <li>A hiba csak a szabály ismeretében látszik: a <code>0</code> és a negatív bemenet átcsúszik a validáción.</li>
+    <li>Szabály: <strong>5. Hibakezelés</strong> (<code>major</code>), a felhasználói bemenetet validálni kell.</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Demó (2/4): lokális review, push előtt</h1>
+<pre><code>git commit -am "Countdown: a másodperc pozitivitás-ellenőrzésének eltávolítása"
+NO_PUSH=1 scripts/local-review.sh main</code></pre>
+<pre><code>== Reviewer építése
+== Demo app fordítása
+== Review: main...demo/bad-countdown
+Lokális review: 1 minor vagy annál súlyosabb találat.
+== Találatok vannak, nem pushol.          (kilépési kód: 3)</code></pre>
+  <p>A kapu működik: <strong class="ok">a push megállt</strong>, a riport a <code>demo-countdown/target/local-review/latest.md</code> fájlba került.</p>
+</section>
+
+<section class="slide">
+  <h1>Demó (3/4): amit a reviewer talált</h1>
+<pre><code>[demo-countdown/.../Countdown.java:76]
+[major] A 0 és a negatív másodperc érték validálása megszűnt, így ezek a
+bemenetek már nem kapnak hibaüzenetet. [...] Az ellenőrzést vissza kell tenni.</code></pre>
+<pre><code>suggestion:
+        if (seconds &lt;= 0 || seconds &gt; MAX_TOTAL.getSeconds()) {</code></pre>
+  <ul>
+    <li><strong>Pontosan 1 találat</strong>: a valódi hibára, a megfelelő sorra.</li>
+    <li>Nem talált ki mellé semmit, nem volt <code>nit</code>, nem volt stíluskommentár.</li>
+    <li>Konkrét <code>suggestion</code> is jött (GitHubon "suggested change" gomb).</li>
+  </ul>
+</section>
+
+<section class="slide">
+  <h1>Demó (4/4): javítás és újabb review</h1>
+  <p>A javítás: az ellenőrzés visszatétele (commit: <code>3f2423b</code>).</p>
+<pre><code>git commit -am "Countdown: a másodperc pozitivitás-ellenőrzésének visszaállítása"
+NO_PUSH=1 scripts/local-review.sh e63cd5b     # csak a javító commit diffje</code></pre>
+<pre><code>A PR a másodperc paraméter validálását egészíti ki a nulla vagy negatív
+értékek elutasításával. A változás helyes. Nincs javítandó észrevétel.
+Lokális review: 0 minor vagy annál súlyosabb találat.     (kilépési kód: 0)</code></pre>
+  <ul>
+    <li><strong>Nincs találat → a script pusholhat.</strong> A kör egy lépésben lezárult: hiba, javítás, zöld.</li>
+    <li>A <code>main...HEAD</code> diff itt üres lett volna (a javítás pontosan a <code>main</code> állapotát adja vissza), ezért a javítást az előző commithoz képest néztük.</li>
+  </ul>
+</section>
+
+<section class="slide lead">
   <h1>A review-loop</h1>
 </section>
 
@@ -240,7 +305,7 @@ NO_PUSH=1 MIN_SEVERITY=minor scripts/local-review.sh main</code></pre>
     <li>a CI artifact útvonala a gitignore-ozott <code>target</code>-re mutat → "hiba"</li>
   </ul>
   <p><strong>Megoldás:</strong> egy külön szakasz az <code>agent.md</code>-ben: <strong>Üzleti döntések (nem hibák)</strong>.</p>
-  <p class="ok">A kör ekkor záródott: az utolsó riport már üres találatlistával jött.</p>
+  <p class="ok">A kör ekkor záródott: az utolsó riport (<code>reviewer/target/local-review/latest.md</code>) már üres találatlistával jött.</p>
 </section>
 
 <section class="slide">
@@ -310,6 +375,21 @@ Egy észrevételben nevezd meg a felesleges elemet és azt, ami kiváltaná.</co
 </section>
 
 <section class="slide">
+  <h1>Vízió: merre tovább a reviewerrel</h1>
+  <p><strong>Cél:</strong> a reviewer egy előre elérhető, verziózott csomag, amit a projektek csak használnak.</p>
+  <table>
+    <tr><th>Terület</th><th>Elképzelés</th></tr>
+    <tr><td><strong>Kontextus</strong></td><td>a PR leírása és a kapcsolódó issue is a promptba kerül: a modell a szándékot is látja</td></tr>
+    <tr><td><strong>Loop ellen</strong></td><td>projektenkénti <strong>whitelist</strong> az ismert, elfogadott találatokra; <strong>plafon</strong> a körökre: adott kör után a reviewer jelzi, hogy valószínűleg szabályhiba van, nem kódhiba</td></tr>
+    <tr><td><strong>Szabályminőség</strong></td><td>a szabályfájl tesztelése: ismert hibás kód találatot ad, ismert jó kód üres listát</td></tr>
+    <tr><td><strong>Javítási javaslat</strong></td><td>többsoros patch egy követett mappában, lokálisan ellenőrizve és alkalmazva (<code>git apply</code>)</td></tr>
+    <tr><td><strong>Integráció</strong></td><td>lokális pre-push hook vagy a build része; CI-ban a workflow fut</td></tr>
+    <tr><td><strong>Modell</strong></td><td>konfigurálható (property), nem csak Copilot; más szolgáltató is bekapcsolható</td></tr>
+    <tr><td><strong>Üzemeltetés</strong></td><td>költség és futásidő mérése; titokszűrés a diffből, mielőtt a modell megkapja</td></tr>
+  </table>
+</section>
+
+<section class="slide">
   <h1>Tanulságok</h1>
   <ul>
     <li>Az AI review <strong>szabályfüggő</strong>: a szabályfájl minősége többet számít, mint a modellé.</li>
@@ -323,6 +403,7 @@ Egy észrevételben nevezd meg a felesleges elemet és azt, ami kiváltaná.</co
 <section class="slide lead">
   <h1>Köszönöm!</h1>
   <h2>Kérdések?</h2>
+  <p>GitHub: <a href="https://github.com/mfeherzsolt/ai-code-review" target="_blank" rel="noopener">https://github.com/mfeherzsolt/ai-code-review</a></p>
   <p class="muted"><code>README.md</code> · <code>agent.md</code> · <code>scripts/local-review.sh</code> · <code>reviewer/</code></p>
 </section>
 
